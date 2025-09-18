@@ -52,15 +52,23 @@ async function pushToOwner(text) {
   return lineClient.pushMessage(ownerUserId, [{ type: 'text', text }]);
 }
 
-// 🔹 Webhook：永遠回 200，避免 LINE 驗證失敗
-app.post('/webhook', lineMiddleware(config), async (req, res) => {
+// 🔹 Webhook：攔截 lineMiddleware 錯誤，避免 500
+app.post('/webhook', (req, res, next) => {
+  lineMiddleware(config)(req, res, (err) => {
+    if (err) {
+      console.error("LINE middleware error:", err);
+      return res.status(200).end(); // 避免 Verify 失敗
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     const events = req.body.events || [];
     await Promise.all(events.map(handleEvent));
     res.status(200).end();
   } catch (err) {
     console.error("Webhook error:", err);
-    res.status(200).end();  // 即使出錯也回 200
+    res.status(200).end();
   }
 });
 
