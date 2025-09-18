@@ -11,6 +11,10 @@ const config = {
   channelSecret: process.env.CHANNEL_SECRET,
 };
 
+// 🔹 Debug: 檢查是否讀到環境變數
+console.log("DEBUG - CHANNEL_SECRET:", process.env.CHANNEL_SECRET ? process.env.CHANNEL_SECRET.slice(0, 8) : "NOT_FOUND");
+console.log("DEBUG - CHANNEL_ACCESS_TOKEN:", process.env.CHANNEL_ACCESS_TOKEN ? process.env.CHANNEL_ACCESS_TOKEN.slice(0, 20) : "NOT_FOUND");
+
 const ownerUserId = process.env.OWNER_USER_ID;
 const cronToken = process.env.CRON_TOKEN;
 
@@ -73,6 +77,7 @@ app.post('/webhook', (req, res, next) => {
 });
 
 async function handleEvent(event) {
+  console.log("收到 LINE 事件:", JSON.stringify(event, null, 2)); // 🔹 Debug 輸出
   if (event.type !== 'message' || event.message.type !== 'text') return null;
   const userText = event.message.text?.trim() || '';
   const reply = await genReply(userText, 'chat');
