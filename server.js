@@ -3,7 +3,7 @@ import express from 'express';
 import { middleware as lineMiddleware, Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080; // Railway 會自動指定
 process.env.TZ = process.env.TZ || 'Asia/Taipei';
 
 const config = {
@@ -113,4 +113,6 @@ app.post('/cron/random', requireCronAuth, async (req, res) => {
   res.send('skipped');
 });
 
-app.listen(PORT, () => console.log(`Server running on :${PORT}`));
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}, webhook ready at /webhook`);
+});
