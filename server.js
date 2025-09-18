@@ -3,11 +3,6 @@ import express from 'express';
 import { middleware as lineMiddleware, Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
 
-// ====== 測試印出環境變數 ======
-console.log("TOKEN_CHECK:", process.env.CHANNEL_ACCESS_TOKEN ? process.env.CHANNEL_ACCESS_TOKEN.slice(0, 20) : "NOT_FOUND");
-console.log("SECRET_CHECK:", process.env.CHANNEL_SECRET ? "OK" : "NOT_FOUND");
-console.log("OWNER_USER_ID:", process.env.OWNER_USER_ID || "NOT_FOUND");
-
 const PORT = process.env.PORT || 3000;
 process.env.TZ = process.env.TZ || 'Asia/Taipei';
 
@@ -57,10 +52,16 @@ async function pushToOwner(text) {
   return lineClient.pushMessage(ownerUserId, [{ type: 'text', text }]);
 }
 
+// 🔹 Webhook：永遠回 200，避免 LINE 驗證失敗
 app.post('/webhook', lineMiddleware(config), async (req, res) => {
-  const events = req.body.events || [];
-  const results = await Promise.all(events.map(handleEvent));
-  res.json(results);
+  try {
+    const events = req.body.events || [];
+    await Promise.all(events.map(handleEvent));
+    res.status(200).end();
+  } catch (err) {
+    console.error("Webhook error:", err);
+    res.status(200).end();  // 即使出錯也回 200
+  }
 });
 
 async function handleEvent(event) {
