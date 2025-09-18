@@ -3,6 +3,11 @@ import express from 'express';
 import { middleware as lineMiddleware, Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
 
+// ====== 測試印出環境變數 ======
+console.log("TOKEN_CHECK:", process.env.CHANNEL_ACCESS_TOKEN ? process.env.CHANNEL_ACCESS_TOKEN.slice(0, 20) : "NOT_FOUND");
+console.log("SECRET_CHECK:", process.env.CHANNEL_SECRET ? "OK" : "NOT_FOUND");
+console.log("OWNER_USER_ID:", process.env.OWNER_USER_ID || "NOT_FOUND");
+
 const PORT = process.env.PORT || 3000;
 process.env.TZ = process.env.TZ || 'Asia/Taipei';
 
