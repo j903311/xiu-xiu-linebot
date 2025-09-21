@@ -93,7 +93,7 @@ app.post('/webhook', async (req, res) => {
   res.status(200).send('OK');
 });
 
-// ======= Cron 驗證（仍保留手動呼叫用） =======
+// ======= Cron 驗證（保留手動呼叫） =======
 function requireCronAuth(req, res, next) {
   const token = req.headers['x-cron-token'];
   if (!cronToken || token !== cronToken) return res.status(401).send('Unauthorized');
@@ -152,7 +152,6 @@ function generateRandomTimes(countMin = 3, countMax = 4, startHour = 10, endHour
 }
 
 function scheduleDaytimeMessages() {
-  // 清除舊的
   daytimeTasks.forEach(t => t.stop());
   daytimeTasks = [];
 
@@ -169,9 +168,8 @@ function scheduleDaytimeMessages() {
   });
 }
 
-// 每天 09:00 設定當日的隨機撒嬌
 cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
-scheduleDaytimeMessages(); // 啟動時先跑一次
+scheduleDaytimeMessages();
 
 // ======= 健康檢查 =======
 app.get('/healthz', (req, res) => res.send('ok'));
