@@ -121,23 +121,23 @@ app.post('/cron/random', requireCronAuth, async (req, res) => {
   res.send('skipped');
 });
 
-// ======= 新增內建自動排程 =======
+// ======= 內建自動排程 =======
 
-// 固定早安
+// 早安
 cron.schedule("0 7 * * *", async () => {
   console.log("⏰ 早安排程觸發");
   const msg = await genReply('', 'morning');
   await pushToOwner(msg);
 }, { timezone: "Asia/Taipei" });
 
-// 固定晚安
+// 晚安
 cron.schedule("0 23 * * *", async () => {
   console.log("⏰ 晚安排程觸發");
   const msg = await genReply('', 'night');
   await pushToOwner(msg);
 }, { timezone: "Asia/Taipei" });
 
-// 白天隨機撒嬌（每天 3-4 次）
+// 白天隨機撒嬌（每天 3–4 次）
 let daytimeTasks = [];
 
 function generateRandomTimes(countMin = 3, countMax = 4, startHour = 10, endHour = 18) {
@@ -171,6 +171,18 @@ function scheduleDaytimeMessages() {
 cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
 scheduleDaytimeMessages();
 
+// ======= 測試推播 =======
+app.get('/test/push', async (req, res) => {
+  try {
+    const msg = await genReply('', 'chat');
+    await pushToOwner("📢 測試推播 → " + msg);
+    res.send("✅ 測試訊息已送出");
+  } catch (err) {
+    console.error("❌ 測試推播失敗:", err.message);
+    res.status(500).send("❌ 測試推播失敗");
+  }
+});
+
 // ======= 健康檢查 =======
 app.get('/healthz', (req, res) => res.send('ok'));
 
@@ -179,3 +191,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
