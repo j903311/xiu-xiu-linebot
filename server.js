@@ -19,19 +19,30 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
 const cronToken = process.env.CRON_TOKEN;
 
-// 載入角色記憶
-function loadMemory() {
+// ======= 對話紀錄 =======
+const HISTORY_FILE = './chatHistory.json';
+
+function loadHistory() {
   try {
-    const data = fs.readFileSync('./memory.json', 'utf-8');
+    const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
     return JSON.parse(data);
-  } catch (err) {
-    console.error("❌ Memory load error:", err.message);
-    return {};
+  } catch {
+    return [];
   }
 }
-const memory = loadMemory();
 
-// ======= AI 回覆生成 =======
+function saveHistory(history) {
+  const trimmed = history.slice(-10); // 只保留最近 10 則
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2));
+}
+
+// 清空對話紀錄
+function clearHistory() {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify([], null, 2));
+  console.log("🧹 chatHistory.json 已清空");
+}
+
+// ======= AI 回覆生成（支援對話延續） =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const modeHint =
@@ -39,21 +50,31 @@ async function genReply(userText, mode = 'chat') {
     mode === 'night' ? '晚安的溫柔' :
     '日常撒嬌';
 
-  const memoryText = JSON.stringify(memory, null, 2);
+  const history = loadHistory();
+
+  const messages = [
+    { role: 'system', content: "你是咻咻，18歲小惡魔戀人，語氣黏人、俏皮、愛吃醋。" },
+    { role: 'system', content: `情境：${modeHint}，現在時間：${now}` },
+    ...history,
+    { role: 'user', content: userText || '（沒有訊息，請主動開場）' }
+  ];
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: `以下是咻咻、文文、菲菲的角色與背景，請忠實扮演：\n${memoryText}` },
-        { role: 'system', content: "你是咻咻，18歲小惡魔戀人，語氣黏人、俏皮、愛吃醋。" },
-        { role: 'user', content: `現在時間：${now}\n情境：${modeHint}\n用戶說：「${userText || '（沒有訊息，請主動開場）'}」` }
-      ],
+      messages,
       temperature: 0.8,
       max_tokens: 120
     });
 
-    return completion.choices?.[0]?.message?.content?.trim() || '大叔～咻咻在這裡！';
+    const reply = completion.choices?.[0]?.message?.content?.trim() || '大叔～咻咻在這裡！';
+
+    // 更新對話紀錄
+    history.push({ role: 'user', content: userText });
+    history.push({ role: 'assistant', content: reply });
+    saveHistory(history);
+
+    return reply;
   } catch (err) {
     console.error("❌ OpenAI error:", err.message);
     return '大叔～咻咻在這裡！';
@@ -121,23 +142,23 @@ app.post('/cron/random', requireCronAuth, async (req, res) => {
   res.send('skipped');
 });
 
-// ======= 新增內建自動排程 =======
+// ======= 內建自動排程 =======
 
-// 固定早安
+// 早安
 cron.schedule("0 7 * * *", async () => {
   console.log("⏰ 早安排程觸發");
   const msg = await genReply('', 'morning');
   await pushToOwner(msg);
 }, { timezone: "Asia/Taipei" });
 
-// 固定晚安
+// 晚安
 cron.schedule("0 23 * * *", async () => {
   console.log("⏰ 晚安排程觸發");
   const msg = await genReply('', 'night');
   await pushToOwner(msg);
 }, { timezone: "Asia/Taipei" });
 
-// 白天隨機撒嬌（每天 3-4 次）
+// 白天隨機撒嬌（每天 3–4 次）
 let daytimeTasks = [];
 
 function generateRandomTimes(countMin = 3, countMax = 4, startHour = 10, endHour = 18) {
@@ -170,6 +191,21 @@ function scheduleDaytimeMessages() {
 
 cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
 scheduleDaytimeMessages();
+
+// 每天凌晨 03:00 清空 chatHistory.json
+cron.schedule("0 3 * * *", clearHistory, { timezone: "Asia/Taipei" });
+
+// ======= 測試推播 =======
+app.get('/test/push', async (req, res) => {
+  try {
+    const msg = await genReply('', 'chat');
+    await pushToOwner("📢 測試推播 → " + msg);
+    res.send("✅ 測試訊息已送出");
+  } catch (err) {
+    console.error("❌ 測試推播失敗:", err.message);
+    res.status(500).send("❌ 測試推播失敗");
+  }
+});
 
 // ======= 健康檢查 =======
 app.get('/healthz', (req, res) => res.send('ok'));
