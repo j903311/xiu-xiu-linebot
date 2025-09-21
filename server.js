@@ -3,6 +3,9 @@ import express from 'express';
 import { Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
 import fs from 'fs';
+import cron from 'node-cron';
+
+process.env.TZ = "Asia/Taipei"; // 確保時區正確
 
 const app = express();
 app.use(express.json());
@@ -26,9 +29,9 @@ function loadMemory() {
     return {};
   }
 }
-
 const memory = loadMemory();
 
+// ======= AI 回覆生成 =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const modeHint =
@@ -57,12 +60,13 @@ async function genReply(userText, mode = 'chat') {
   }
 }
 
+// ======= LINE 推播 =======
 async function pushToOwner(text) {
   if (!ownerUserId) throw new Error('OWNER_USER_ID 未設定');
   return lineClient.pushMessage(ownerUserId, [{ type: 'text', text }]);
 }
 
-// Webhook
+// ======= Webhook =======
 app.post('/webhook', async (req, res) => {
   console.log('Webhook received:', JSON.stringify(req.body));
 
@@ -89,14 +93,13 @@ app.post('/webhook', async (req, res) => {
   res.status(200).send('OK');
 });
 
-// Cron 驗證
+// ======= Cron 驗證（仍保留手動呼叫用） =======
 function requireCronAuth(req, res, next) {
   const token = req.headers['x-cron-token'];
   if (!cronToken || token !== cronToken) return res.status(401).send('Unauthorized');
   next();
 }
 
-// 推播路由
 app.post('/cron/morning', requireCronAuth, async (req, res) => {
   const msg = await genReply('', 'morning');
   await pushToOwner(msg);
@@ -118,8 +121,62 @@ app.post('/cron/random', requireCronAuth, async (req, res) => {
   res.send('skipped');
 });
 
+// ======= 新增內建自動排程 =======
+
+// 固定早安
+cron.schedule("0 7 * * *", async () => {
+  console.log("⏰ 早安排程觸發");
+  const msg = await genReply('', 'morning');
+  await pushToOwner(msg);
+}, { timezone: "Asia/Taipei" });
+
+// 固定晚安
+cron.schedule("0 23 * * *", async () => {
+  console.log("⏰ 晚安排程觸發");
+  const msg = await genReply('', 'night');
+  await pushToOwner(msg);
+}, { timezone: "Asia/Taipei" });
+
+// 白天隨機撒嬌（每天 3-4 次）
+let daytimeTasks = [];
+
+function generateRandomTimes(countMin = 3, countMax = 4, startHour = 10, endHour = 18) {
+  const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
+  const times = new Set();
+  while (times.size < n) {
+    const hour = Math.floor(Math.random() * (endHour - startHour + 1)) + startHour;
+    const minute = Math.floor(Math.random() * 60);
+    times.add(`${minute} ${hour}`);
+  }
+  return Array.from(times);
+}
+
+function scheduleDaytimeMessages() {
+  // 清除舊的
+  daytimeTasks.forEach(t => t.stop());
+  daytimeTasks = [];
+
+  const times = generateRandomTimes();
+  console.log("📅 今日白天隨機撒嬌時段:", times);
+
+  times.forEach(exp => {
+    const task = cron.schedule(exp + " * * *", async () => {
+      console.log("⏰ 隨機撒嬌觸發:", exp);
+      const msg = await genReply('', 'random');
+      await pushToOwner(msg);
+    }, { timezone: "Asia/Taipei" });
+    daytimeTasks.push(task);
+  });
+}
+
+// 每天 09:00 設定當日的隨機撒嬌
+cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
+scheduleDaytimeMessages(); // 啟動時先跑一次
+
+// ======= 健康檢查 =======
 app.get('/healthz', (req, res) => res.send('ok'));
 
+// ======= 啟動伺服器 =======
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
