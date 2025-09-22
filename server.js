@@ -42,7 +42,7 @@ function clearHistory() {
   console.log("🧹 chatHistory.json 已清空");
 }
 
-// ======= AI 回覆生成（支援對話延續） =======
+// ======= AI 回覆生成（支援對話延續 + 短句多段） =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const modeHint =
@@ -53,7 +53,7 @@ async function genReply(userText, mode = 'chat') {
   const history = loadHistory();
 
   const messages = [
-    { role: 'system', content: "你是咻咻，18歲小惡魔戀人，語氣黏人、俏皮、愛吃醋。" },
+    { role: 'system', content: "你是咻咻，18歲小惡魔戀人，語氣黏人、俏皮、愛吃醋。每句話不超過15字，一次說2-3句。" },
     { role: 'system', content: `情境：${modeHint}，現在時間：${now}` },
     ...history,
     { role: 'user', content: userText || '（沒有訊息，請主動開場）' }
@@ -67,24 +67,35 @@ async function genReply(userText, mode = 'chat') {
       max_tokens: 120
     });
 
-    const reply = completion.choices?.[0]?.message?.content?.trim() || '大叔～咻咻在這裡！';
+    let reply = completion.choices?.[0]?.message?.content?.trim() || '大叔～咻咻在這裡！';
 
-    // 更新對話紀錄
+    // 拆成句子
+    let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
+
+    // 過濾：只留 15 字以內
+    sentences = sentences.filter(s => s.length <= 15);
+
+    // 取 2–3 句
+    const pickCount = Math.min(sentences.length, Math.floor(Math.random() * 2) + 2); // 2 或 3
+    const picked = sentences.slice(0, pickCount);
+
+    // 更新對話紀錄（合併）
     history.push({ role: 'user', content: userText });
-    history.push({ role: 'assistant', content: reply });
+    history.push({ role: 'assistant', content: picked.join(" / ") });
     saveHistory(history);
 
-    return reply;
+    // 回傳 LINE 訊息格式（多則訊息）
+    return picked.map(s => ({ type: 'text', text: s }));
   } catch (err) {
     console.error("❌ OpenAI error:", err.message);
-    return '大叔～咻咻在這裡！';
+    return [{ type: 'text', text: '大叔～咻咻在這裡！' }];
   }
 }
 
 // ======= LINE 推播 =======
-async function pushToOwner(text) {
+async function pushToOwner(messages) {
   if (!ownerUserId) throw new Error('OWNER_USER_ID 未設定');
-  return lineClient.pushMessage(ownerUserId, [{ type: 'text', text }]);
+  return lineClient.pushMessage(ownerUserId, messages);
 }
 
 // ======= Webhook =======
@@ -96,13 +107,11 @@ app.post('/webhook', async (req, res) => {
       if (ev.type === 'message' && ev.message.type === 'text') {
         console.log(`📩 User said: ${ev.message.text}`);
 
-        const replyText = await genReply(ev.message.text, 'chat');
-        console.log(`🤖 XiuXiu reply: ${replyText}`);
+        const replyMessages = await genReply(ev.message.text, 'chat');
+        console.log(`🤖 XiuXiu reply:`, replyMessages);
 
         try {
-          await lineClient.replyMessage(ev.replyToken, [
-            { type: 'text', text: replyText }
-          ]);
+          await lineClient.replyMessage(ev.replyToken, replyMessages);
           console.log('✅ Reply sent to LINE');
         } catch (err) {
           console.error('❌ Reply failed:', err.originalError?.response?.data || err.message);
@@ -199,7 +208,7 @@ cron.schedule("0 3 * * *", clearHistory, { timezone: "Asia/Taipei" });
 app.get('/test/push', async (req, res) => {
   try {
     const msg = await genReply('', 'chat');
-    await pushToOwner("📢 測試推播 → " + msg);
+    await pushToOwner([{ type: 'text', text: "📢 測試推播" }, ...msg]);
     res.send("✅ 測試訊息已送出");
   } catch (err) {
     console.error("❌ 測試推播失敗:", err.message);
