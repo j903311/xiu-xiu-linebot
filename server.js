@@ -54,7 +54,8 @@ const MEMORY_FILE = './memory.json';
 function loadMemory() {
   try {
     const data = fs.readFileSync(MEMORY_FILE, 'utf-8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];  // 🔧 確保一定是陣列
   } catch {
     return [];
   }
@@ -217,7 +218,7 @@ app.post('/webhook', async (req, res) => {
       if (ev.type === "message" && ev.message.type === "text") {
         console.log("👤 User Message:", ev.message.text);
 
-        // 檢查是否要存記憶
+        // 🔧 檢查是否要存記憶
         checkAndSaveMemory(ev.message.text);
 
         const replyMessages = await genReply(ev.message.text, "chat");
