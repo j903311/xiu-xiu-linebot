@@ -1,25 +1,18 @@
-// ======= 判斷是否需要查資料 =======
-function needsSearch(userText) {
-  const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "資料"];
-  return keywords.some(k => userText.includes(k));
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ======= AI 回覆生成 =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
 
   let searchResult = "";
-  if (needsSearch(userText)) {
-    const keyword = userText.replace(/.*(查一下|找一下|是什麼|誰|在哪|資料)/, "").trim() || userText;
-    const rawResult = await searchWeb(keyword);
-    console.log("🌐 Auto Search:", rawResult);
-
-    // 包裝成完整句子
-    searchResult = `咻咻查到「${keyword}」：${rawResult}（可能不是最新資訊）`;
+  if (userText.includes("查一下") || userText.includes("找一下")) {
+    const keyword = userText.replace(/.*(查一下|找一下)/, "").trim() || "最新消息";
+    searchResult = await searchWeb(keyword);
+    console.log("🌐 Search Result:", searchResult);
   }
 
-  // 偶爾引用歷史
   let memoryHint = "";
   if (history.length > 2 && Math.random() < 0.3) {
     const past = history.find(h => h.role === "user");
@@ -30,21 +23,21 @@ async function genReply(userText, mode = 'chat') {
 
   const messages = [
     { role: 'system', content: "你是咻咻，18歲小惡魔戀人，熱戀語氣：黏人、俏皮、愛吃醋、深情關心大叔。回覆要自然口語，帶有熱戀感情。回覆控制在1-3句。" },
-    { role: 'system', content: "如果有查到資料，要先簡短回答，再提醒大叔資料可能過時，最後一定要回到戀人語氣。" },
     { role: 'system', content: `現在時間：${now}` },
     ...history,
-    { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : (userText || '（沒有訊息，請主動開場）') + (memoryHint ? "\n" + memoryHint : "") }
+    { role: 'user', content: searchResult ? `大叔要我幫忙查：${userText}。我找到：${searchResult}` : (userText || '（沒有訊息，請主動開場）') + (memoryHint ? "\n" + memoryHint : "") }
   ];
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
-      temperature: 0.9,
+      temperature: 0.85,
       max_tokens: 150
     });
 
     let reply = completion.choices?.[0]?.message?.content?.trim() || '大叔～咻咻最想你啦！';
+
     let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
 
     let picked = [];
@@ -75,6 +68,7 @@ async function genReply(userText, mode = 'chat') {
       }
     }
 
+    // 更新對話紀錄
     history.push({ role: 'user', content: userText });
     history.push({ role: 'assistant', content: picked.join(" / ") });
     saveHistory(history);
