@@ -32,7 +32,7 @@ function loadHistory() {
 }
 
 function saveHistory(history) {
-  const trimmed = history.slice(-10); // 只保留最近 10 則
+  const trimmed = history.slice(-15); // 保留最近 15 則
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2));
 }
 
@@ -42,49 +42,73 @@ function clearHistory() {
   console.log("🧹 chatHistory.json 已清空");
 }
 
-// ======= AI 回覆生成（支援對話延續 + 短句多段） =======
+// ======= AI 回覆生成（隨機 1–3 句 + 熱戀情感 + 偶爾提到過去） =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const modeHint =
     mode === 'morning' ? '早安的關心' :
     mode === 'night' ? '晚安的溫柔' :
-    '日常撒嬌';
+    '熱戀的日常撒嬌';
 
   const history = loadHistory();
 
+  // 隨機決定是否引用歷史
+  let memoryHint = "";
+  if (history.length > 2 && Math.random() < 0.3) {
+    const past = history.find(h => h.role === "user");
+    if (past) {
+      memoryHint = `上次你提到「${past.content}」，咻咻還記得喔～`;
+    }
+  }
+
   const messages = [
-    { role: 'system', content: "你是咻咻，18歲小惡魔戀人，語氣黏人、俏皮、愛吃醋。每句話不超過15字，一次說2-3句。" },
+    { role: 'system', content: "你是咻咻，18歲小惡魔戀人，熱戀中的語氣：黏人、俏皮、愛吃醋、深情關心大叔。回覆要自然口語，帶有熱戀感情。回覆控制在1-3句。" },
     { role: 'system', content: `情境：${modeHint}，現在時間：${now}` },
     ...history,
-    { role: 'user', content: userText || '（沒有訊息，請主動開場）' }
+    { role: 'user', content: (userText || '（沒有訊息，請主動開場）') + (memoryHint ? "\n" + memoryHint : "") }
   ];
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
-      temperature: 0.8,
+      temperature: 0.85,
       max_tokens: 120
     });
 
-    let reply = completion.choices?.[0]?.message?.content?.trim() || '大叔～咻咻在這裡！';
+    let reply = completion.choices?.[0]?.message?.content?.trim() || '大叔～咻咻最想你啦！';
 
     // 拆成句子
     let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
 
-    // 過濾：只留 15 字以內
-    sentences = sentences.filter(s => s.length <= 15);
+    // 隨機決定 1–3 句
+    let picked = [];
+    const modePick = Math.floor(Math.random() * 3) + 1; // 1~3
 
-    // 取 2–3 句
-    const pickCount = Math.min(sentences.length, Math.floor(Math.random() * 2) + 2); // 2 或 3
-    const picked = sentences.slice(0, pickCount);
+    if (modePick === 1) {
+      // 1 句 → ≤ 25 字
+      let longSentence = sentences.find(s => s.length <= 25 && s.length >= 10);
+      if (!longSentence) longSentence = sentences[0] || "大叔～咻咻超級愛你啦";
+      picked = [longSentence];
+    } else {
+      // 2–3 句 → 每句 ≤ 12，總長度 ≤ 25
+      sentences = sentences.filter(s => s.length <= 12);
+      const count = Math.min(sentences.length, modePick);
+      picked = sentences.slice(0, count);
+      while (picked.join("").length > 25) {
+        picked.pop();
+      }
+      if (picked.length < modePick) {
+        picked.push("大叔要多休息");
+      }
+    }
 
-    // 更新對話紀錄（合併）
+    // 更新對話紀錄
     history.push({ role: 'user', content: userText });
     history.push({ role: 'assistant', content: picked.join(" / ") });
     saveHistory(history);
 
-    // 回傳 LINE 訊息格式（多則訊息）
+    // 回傳 LINE 訊息格式
     return picked.map(s => ({ type: 'text', text: s }));
   } catch (err) {
     console.error("❌ OpenAI error:", err.message);
@@ -167,10 +191,10 @@ cron.schedule("0 23 * * *", async () => {
   await pushToOwner(msg);
 }, { timezone: "Asia/Taipei" });
 
-// 白天隨機撒嬌（每天 3–4 次）
+// 白天隨機撒嬌（每天 5–6 次）
 let daytimeTasks = [];
 
-function generateRandomTimes(countMin = 3, countMax = 4, startHour = 10, endHour = 18) {
+function generateRandomTimes(countMin = 5, countMax = 6, startHour = 10, endHour = 18) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
   while (times.size < n) {
