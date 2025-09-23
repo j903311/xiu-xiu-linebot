@@ -55,7 +55,7 @@ function loadMemory() {
   try {
     const data = fs.readFileSync(MEMORY_FILE, 'utf-8');
     const parsed = JSON.parse(data);
-    return Array.isArray(parsed) ? parsed : [];  // 🔧 確保一定是陣列
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
@@ -188,6 +188,11 @@ async function genReply(userText, mode = 'chat') {
       }
     }
 
+    // ===== 保底：避免空回覆 =====
+    if (picked.length === 0) {
+      picked = [ reply.slice(0, 30) || "大叔～咻咻最愛你啦！" ];
+    }
+
     history.push({ role: 'user', content: userText });
     history.push({ role: 'assistant', content: picked.join(" / ") });
     saveHistory(history);
@@ -285,6 +290,26 @@ app.get('/test/push', async (req, res) => {
   }
 });
 
+// ======= 測試：查看 memory.json =======
+app.get('/test/memory', (req, res) => {
+  try {
+    const memory = loadMemory();
+    res.json({ memory });
+  } catch (err) {
+    res.status(500).send("❌ 讀取 memory.json 失敗");
+  }
+});
+
+// ======= 測試：清空 memory.json =======
+app.get('/test/clear-memory', (req, res) => {
+  try {
+    saveMemory([]);
+    res.send("✅ memory.json 已清空");
+  } catch (err) {
+    res.status(500).send("❌ 清空 memory.json 失敗");
+  }
+});
+
 // ======= 健康檢查 =======
 app.get('/healthz', (req, res) => res.send('ok'));
 
@@ -292,4 +317,5 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
 
