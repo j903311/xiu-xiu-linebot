@@ -75,6 +75,34 @@ function checkAndSaveMemory(userText) {
   }
 }
 
+// ======= 更新：Google Maps 店家搜尋（前 3 筆結果） =======
+async function searchPlace(query) {
+  try {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=zh-TW&key=${apiKey}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.results && data.results.length > 0) {
+      // 取前 3 筆結果
+      const top3 = data.results.slice(0, 3).map((p, i) => {
+        return `${i + 1}. ${p.name}（${p.formatted_address}）`;
+      }).join("\n");
+
+      return `咻咻幫大叔找了幾家店～\n${top3}\n大叔要不要我們一起去試試看呀？`;
+    }
+    return "咻咻找不到這家店耶～要不要換個名字？";
+  } catch (err) {
+    console.error("❌ Google Maps error:", err.message);
+    return "咻咻搜尋店家失敗了…大叔要不要再問一次嘛～";
+  }
+}
+
+function needsPlaceSearch(userText) {
+  const keywords = ["哪一家", "在哪", "地址", "怎麼去"];
+  return keywords.some(k => userText.includes(k));
+}
+
 // ======= 搜尋功能（新聞 + DuckDuckGo） =======
 async function searchWeb(query) {
   try {
@@ -110,7 +138,13 @@ async function genReply(userText, mode = 'chat') {
   const memory = loadMemory();
 
   let searchResult = "";
-  if (needsSearch(userText)) {
+
+  // === 新增：優先判斷是否需要 Google Maps 查詢 ===
+  if (needsPlaceSearch(userText)) {
+    const placeResult = await searchPlace(userText);
+    searchResult = placeResult;
+    console.log("📍 Place Search:", searchResult);
+  } else if (needsSearch(userText)) {
     const keyword = userText.replace(/.*(查一下|找一下|是什麼|誰|在哪|資料|新聞)/, "").trim() || userText;
     const rawResult = await searchWeb(keyword);
     searchResult = `咻咻查到「${keyword}」：${rawResult}（可能不是最新資訊）`;
@@ -333,4 +367,5 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
 
