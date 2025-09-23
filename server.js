@@ -254,7 +254,7 @@ cron.schedule("0 23 * * *", async () => {
 }, { timezone: "Asia/Taipei" });
 
 let daytimeTasks = [];
-function generateRandomTimes(countMin = 5, countMax = 6, startHour = 10, endHour = 18) {
+function generateRandomTimes(countMin = 10, countMax = 10, startHour = 10, endHour = 18) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
   while (times.size < n) {
@@ -320,6 +320,7 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
 
 
 
