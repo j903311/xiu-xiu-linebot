@@ -130,7 +130,32 @@ function needsSearch(userText) {
   return keywords.some(k => userText.includes(k));
 }
 
-// ======= AI 回覆生成（已修改） =======
+// ======= 智能分句器 =======
+function splitToShortSentences(text, maxLen = 15) {
+  let sentences = text.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
+  let result = [];
+
+  for (let s of sentences) {
+    if (s.length <= maxLen) {
+      result.push(s);
+    } else {
+      // 嘗試用逗號、頓號、連詞切分
+      let parts = s.split(/，|、|而且|但是|所以|因為/).map(p => p.trim()).filter(Boolean);
+      if (parts.length > 1) {
+        for (let p of parts) {
+          if (p.length > 0) result.push(p);
+        }
+      } else {
+        // 找不到合適切點，就保留原句
+        result.push(s);
+      }
+    }
+  }
+
+  return result;
+}
+
+// ======= AI 回覆生成 =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
@@ -181,9 +206,9 @@ async function genReply(userText, mode = 'chat') {
   - 「啦～」：用於強調或小任性。
   - 「耶～」：用於開心或得意。
   - 「哼！」：僅在吃醋或假生氣時使用。
-- 每次回覆隨機 1–3 句：
-  - 1 句 ≤ 35 字。
-  - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
+- 每次回覆隨機 1–2 句：
+  - 每句 ≤ 15 字。
+  - 總長 ≤ 36 字。
 - 查到資料：先回答，再提醒可能過時，最後轉回戀人語氣。
 
 【補充規則】
@@ -212,23 +237,28 @@ async function genReply(userText, mode = 'chat') {
     let picked = [];
 
     if (mode === 'search') {
-      // 查詢模式 → 完整輸出
-      picked = [reply];
+      picked = [reply]; // 查詢模式 → 完整回答
     } else {
-      // 閒聊模式 → 短小精緻
-      let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
-      sentences = sentences.filter(s => s.length > 0 && s.length <= 18);
+      let sentences = splitToShortSentences(reply, 15);
 
-      const count = Math.min(sentences.length, Math.floor(Math.random() * 2) + 1);
-      picked = sentences.slice(0, count);
-
-      if (picked.join("").length > 36) {
-        picked = [picked[0]];
+      if (sentences.length > 2) {
+        sentences = sentences.slice(0, 2);
       }
 
-      if (picked.length === 0) {
-        picked = [reply.slice(0, 30)];
+      if (sentences.join("").length > 36) {
+        sentences = [sentences[0]];
       }
+
+      if (sentences.length === 0) {
+        sentences = [reply.slice(0, 30)];
+      }
+
+      let last = sentences[sentences.length - 1];
+      if (!/[。！？～啦嘛耶！]$/.test(last)) {
+        sentences[sentences.length - 1] = last + "啦～";
+      }
+
+      picked = sentences;
     }
 
     history.push({ role: 'user', content: userText });
@@ -354,6 +384,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
-
-
 
