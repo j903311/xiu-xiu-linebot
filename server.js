@@ -169,7 +169,7 @@ async function genReply(userText, mode = 'chat') {
       model: 'gpt-4o-mini',
       messages,
       temperature: 0.9,
-      max_tokens: 180
+      max_tokens: 400   // ← 提高 max_tokens
     });
 
     let reply = completion.choices?.[0]?.message?.content?.trim() || "大叔～咻咻最想你啦！";
@@ -198,11 +198,12 @@ async function genReply(userText, mode = 'chat') {
     }
 
     // ===== 檢查是否斷句不完整 =====
-    const lastSentence = picked[picked.length - 1];
+    const lastSentence = picked[picked.length - 1] || "";
     const incompletePattern = /(是|那|因為|所以|而且|但是|胸部是|三圍是)$/;
-    if (incompletePattern.test(lastSentence)) {
-      console.log("⚠️ 檢測到斷句，補上完整回覆");
-      picked = [reply]; // 讓咻咻直接完整說完
+    const notEndedProperly = !/[。！？～啦嘛耶！]$/.test(lastSentence);
+    if (incompletePattern.test(lastSentence) || lastSentence.length < 6 || notEndedProperly) {
+      console.log("⚠️ 檢測到斷句或不完整，補上完整回覆");
+      picked = [reply]; // 直接用完整回覆
     }
 
     history.push({ role: 'user', content: userText });
@@ -328,8 +329,3 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
-
-
-
-
-
