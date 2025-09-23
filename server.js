@@ -197,6 +197,14 @@ async function genReply(userText, mode = 'chat') {
       picked = [ reply.slice(0, 30) || "大叔～咻咻最愛你啦！" ];
     }
 
+    // ===== 檢查是否斷句不完整 =====
+    const lastSentence = picked[picked.length - 1];
+    const incompletePattern = /(是|那|因為|所以|而且|但是|胸部是|三圍是)$/;
+    if (incompletePattern.test(lastSentence)) {
+      console.log("⚠️ 檢測到斷句，補上完整回覆");
+      picked = [reply]; // 讓咻咻直接完整說完
+    }
+
     history.push({ role: 'user', content: userText });
     history.push({ role: 'assistant', content: picked.join(" / ") });
     saveHistory(history);
@@ -320,6 +328,7 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
 
 
 
