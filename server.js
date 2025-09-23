@@ -75,7 +75,7 @@ function checkAndSaveMemory(userText) {
   }
 }
 
-// ======= 更新：Google Maps 店家搜尋（前 3 筆結果） =======
+// ======= Google Maps 店家搜尋 =======
 async function searchPlace(query) {
   try {
     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
@@ -130,7 +130,7 @@ function needsSearch(userText) {
   return keywords.some(k => userText.includes(k));
 }
 
-// ======= AI 回覆生成 =======
+// ======= AI 回覆生成（已修改） =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
@@ -142,11 +142,13 @@ async function genReply(userText, mode = 'chat') {
     const placeResult = await searchPlace(userText);
     searchResult = placeResult;
     console.log("📍 Place Search:", searchResult);
+    mode = 'search';
   } else if (needsSearch(userText)) {
     const keyword = userText.replace(/.*(查一下|找一下|是什麼|誰|在哪|資料|新聞)/, "").trim() || userText;
     const rawResult = await searchWeb(keyword);
     searchResult = `咻咻查到「${keyword}」：${rawResult}（可能不是最新資訊）`;
     console.log("🌐 Auto Search:", searchResult);
+    mode = 'search';
   }
 
   const messages = [
@@ -191,10 +193,7 @@ async function genReply(userText, mode = 'chat') {
 - 不可只回單字或表情詞，每次至少一個完整句子。
 ` },
     { role: 'system', content: `現在時間：${now}` },
-    { 
-      role: 'system', 
-      content: `以下是咻咻對大叔的長期記憶：\n${memory.map(m => "- " + m.text).join("\n")}` 
-    },
+    { role: 'system', content: `以下是咻咻對大叔的長期記憶：\n${memory.map(m => "- " + m.text).join("\n")}` },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
   ];
@@ -210,33 +209,26 @@ async function genReply(userText, mode = 'chat') {
     let reply = completion.choices?.[0]?.message?.content?.trim() || "大叔～咻咻最想你啦！";
     console.log("🤖 OpenAI Raw Reply:", reply);
 
-    let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
-
     let picked = [];
-    const modePick = Math.floor(Math.random() * 3) + 1;
 
-    if (modePick === 1) {
-      let longSentence = sentences.find(s => s.length <= 35);
-      picked = [longSentence || sentences[0] || "大叔～咻咻超級愛你啦"];
-    } else {
-      sentences = sentences.filter(s => s.length <= 18);
-      const count = Math.min(sentences.length, modePick);
-      picked = sentences.slice(0, count);
-      while (picked.join("").length > 36) {
-        picked.pop();
-      }
-    }
-
-    if (picked.length === 0) {
-      picked = [ reply.slice(0, 30) || "大叔～咻咻最愛你啦！" ];
-    }
-
-    const lastSentence = picked[picked.length - 1] || "";
-    const incompletePattern = /(是|那|因為|所以|而且|但是|胸部是|三圍是)$/;
-    const notEndedProperly = !/[。！？～啦嘛耶！]$/.test(lastSentence);
-    if (incompletePattern.test(lastSentence) || lastSentence.length < 6 || notEndedProperly) {
-      console.log("⚠️ 檢測到斷句或不完整，補上完整回覆");
+    if (mode === 'search') {
+      // 查詢模式 → 完整輸出
       picked = [reply];
+    } else {
+      // 閒聊模式 → 短小精緻
+      let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
+      sentences = sentences.filter(s => s.length > 0 && s.length <= 18);
+
+      const count = Math.min(sentences.length, Math.floor(Math.random() * 2) + 1);
+      picked = sentences.slice(0, count);
+
+      if (picked.join("").length > 36) {
+        picked = [picked[0]];
+      }
+
+      if (picked.length === 0) {
+        picked = [reply.slice(0, 30)];
+      }
     }
 
     history.push({ role: 'user', content: userText });
@@ -296,7 +288,6 @@ cron.schedule("0 23 * * *", async () => {
 }, { timezone: "Asia/Taipei" });
 
 let daytimeTasks = [];
-// ==== 修改處 ====
 function generateRandomTimes(countMin = 20, countMax = 20, startHour = 7, endHour = 23) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
