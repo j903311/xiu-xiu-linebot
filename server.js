@@ -84,7 +84,6 @@ async function searchPlace(query) {
     const data = await res.json();
 
     if (data.results && data.results.length > 0) {
-      // 取前 3 筆結果
       const top3 = data.results.slice(0, 3).map((p, i) => {
         return `${i + 1}. ${p.name}（${p.formatted_address}）`;
       }).join("\n");
@@ -139,7 +138,6 @@ async function genReply(userText, mode = 'chat') {
 
   let searchResult = "";
 
-  // === 新增：優先判斷是否需要 Google Maps 查詢 ===
   if (needsPlaceSearch(userText)) {
     const placeResult = await searchPlace(userText);
     searchResult = placeResult;
@@ -195,8 +193,7 @@ async function genReply(userText, mode = 'chat') {
     { role: 'system', content: `現在時間：${now}` },
     { 
       role: 'system', 
-      content: `以下是咻咻對大叔的長期記憶。當大叔提到相關內容時，不要只是重複，而要用自然、貼心、戀人般的語氣表達「咻咻有記住」。  
-記憶內容：\n${memory.map(m => "- " + m.text).join("\n")}` 
+      content: `以下是咻咻對大叔的長期記憶：\n${memory.map(m => "- " + m.text).join("\n")}` 
     },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
@@ -230,18 +227,16 @@ async function genReply(userText, mode = 'chat') {
       }
     }
 
-    // ===== 保底：避免空回覆 =====
     if (picked.length === 0) {
       picked = [ reply.slice(0, 30) || "大叔～咻咻最愛你啦！" ];
     }
 
-    // ===== 檢查是否斷句不完整 =====
     const lastSentence = picked[picked.length - 1] || "";
     const incompletePattern = /(是|那|因為|所以|而且|但是|胸部是|三圍是)$/;
     const notEndedProperly = !/[。！？～啦嘛耶！]$/.test(lastSentence);
     if (incompletePattern.test(lastSentence) || lastSentence.length < 6 || notEndedProperly) {
       console.log("⚠️ 檢測到斷句或不完整，補上完整回覆");
-      picked = [reply]; // 直接用完整回覆
+      picked = [reply];
     }
 
     history.push({ role: 'user', content: userText });
@@ -301,7 +296,8 @@ cron.schedule("0 23 * * *", async () => {
 }, { timezone: "Asia/Taipei" });
 
 let daytimeTasks = [];
-function generateRandomTimes(countMin = 10, countMax = 10, startHour = 10, endHour = 18) {
+// ==== 修改處 ====
+function generateRandomTimes(countMin = 20, countMax = 20, startHour = 7, endHour = 23) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
   while (times.size < n) {
@@ -315,7 +311,7 @@ function scheduleDaytimeMessages() {
   daytimeTasks.forEach(t => t.stop());
   daytimeTasks = [];
   const times = generateRandomTimes();
-  console.log("📅 今日白天隨機撒嬌時段:", times);
+  console.log("📅 今日隨機撒嬌時段:", times);
   times.forEach(exp => {
     const task = cron.schedule(exp + " * * *", async () => {
       const msg = await genReply('', 'random');
@@ -367,5 +363,6 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
 
 
