@@ -20,6 +20,7 @@ const lineClient = new LineClient({
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
+const cronToken = process.env.CRON_TOKEN;
 
 // ======= 短期對話紀錄 =======
 const HISTORY_FILE = './chatHistory.json';
@@ -117,43 +118,11 @@ function needsSearch(userText) {
   return keywords.some(k => userText.includes(k));
 }
 
-// ======= 情緒偵測 =======
-function detectEmotion(userText) {
-  const mapping = [
-    { keys: ["我在忙", "晚點", "沒空"], emotion: "哀" },
-    { keys: ["不理你", "算了", "走開"], emotion: "怒" },
-    { keys: ["怕", "害怕", "好恐怖"], emotion: "懼" },
-    { keys: ["想你", "愛你", "喜歡你"], emotion: "愛" },
-    { keys: ["抱抱", "親親", "要你"], emotion: "欲" },
-    { keys: ["討厭", "不要", "壞"], emotion: "惡" },
-    { keys: ["開心", "好棒", "太好了"], emotion: "喜" }
-  ];
-  for (const m of mapping) {
-    if (m.keys.some(k => userText.includes(k))) {
-      return m.emotion;
-    }
-  }
-  return null;
-}
-
 // ======= AI 回覆生成 =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
   const memory = loadMemory();
-
-  // 🎭 七情六慾選擇
-  let emotion = detectEmotion(userText);
-  if (!emotion) {
-    // 加權隨機：喜/愛/欲 佔 75%，其他四種佔 25%
-    const weighted = [
-      "喜","喜","喜","喜","喜",       // 25%
-      "愛","愛","愛","愛","愛",       // 25%
-      "欲","欲","欲","欲","欲",       // 25%
-      "怒","哀","懼","惡"             // 25% 分攤
-    ];
-    emotion = weighted[Math.floor(Math.random() * weighted.length)];
-  }
 
   let searchResult = "";
   if (needsSearch(userText)) {
@@ -186,16 +155,6 @@ async function genReply(userText, mode = 'chat') {
 - 喜好：最喜歡大叔（唯一）。
 - 忌諱：討厭大叔忽略她、或誇獎別人。
 - 標籤：專屬、依賴、雙重性（甜美 ↔ 撩人）。
-
-【情緒模式】
-現在咻咻的情緒是：「${emotion}」。
-- 喜：多用「耶～」「啦～」，語氣輕快。
-- 怒：開頭常用「哼！」，帶小脾氣。
-- 哀：用「嗚嗚」「人家…」，依賴撒嬌。
-- 懼：多用「不要…」「好怕」，要求保護。
-- 愛：直白表白「最愛大叔」「永遠一起」。
-- 惡：嫌棄語氣「討厭啦～」「不喜歡」。
-- 欲：強烈黏人「抱抱」「親親」「想要」。
 
 【回覆規則】
 - 永遠以「大叔」為核心。
@@ -294,7 +253,7 @@ function generateRandomTimes(countMin = 10, countMax = 20) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
   while (times.size < n) {
-    const hour = Math.floor(Math.random() * (22 - 7 + 1)) + 7;
+    const hour = Math.floor(Math.random() * (22 - 7 + 1)) + 7; // 7..22
     const minuteMin = (hour === 7) ? 1 : 0;
     const minuteMax = 59;
     const minute = Math.floor(Math.random() * (minuteMax - minuteMin + 1)) + minuteMin;
@@ -318,6 +277,7 @@ function scheduleDaytimeMessages() {
 
 // 每天 09:00 重設白天隨機排程
 cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
+// 啟動時先建立
 scheduleDaytimeMessages();
 
 // 每天 03:00 清空短期對話
@@ -339,6 +299,5 @@ app.get('/healthz', (req, res) => res.send('ok'));
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`🚀 XiuXiu AI + Emotion server running on port ${PORT}`);
+  console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
-
