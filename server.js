@@ -145,20 +145,15 @@ async function genReply(userText, mode = 'chat') {
   // 🎭 七情六慾選擇
   let emotion = detectEmotion(userText);
   if (!emotion) {
-    const emotions = ["喜", "怒", "哀", "懼", "愛", "惡", "欲"];
-    emotion = emotions[Math.floor(Math.random() * emotions.length)];
+    // 加權隨機：喜/愛/欲 佔 75%，其他四種佔 25%
+    const weighted = [
+      "喜","喜","喜","喜","喜",       // 25%
+      "愛","愛","愛","愛","愛",       // 25%
+      "欲","欲","欲","欲","欲",       // 25%
+      "怒","哀","懼","惡"             // 25% 分攤
+    ];
+    emotion = weighted[Math.floor(Math.random() * weighted.length)];
   }
-
-  // 🎨 情緒對應表情
-  const emotionIcons = {
-    "喜": "😍",
-    "怒": "😡",
-    "哀": "😭",
-    "懼": "😱",
-    "愛": "💖",
-    "惡": "😤",
-    "欲": "🔥"
-  };
 
   let searchResult = "";
   if (needsSearch(userText)) {
@@ -249,7 +244,7 @@ async function genReply(userText, mode = 'chat') {
     const delayMs = Math.floor(Math.random() * 2000) + 1000;
     await delay(delayMs);
 
-    return picked.map(s => ({ type: 'text', text: `${emotionIcons[emotion]} ${s}` }));
+    return picked.map(s => ({ type: 'text', text: s }));
   } catch (err) {
     console.error("❌ OpenAI error:", err);
     return [{ type: 'text', text: "大叔～咻咻卡住了，抱抱我嘛～" }];
@@ -346,3 +341,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Emotion server running on port ${PORT}`);
 });
+
