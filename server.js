@@ -332,18 +332,68 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ======= 自動排程 =======
-// 早安 07:00
+
+// 固定訊息句庫
+const fixedMessages = {
+  morning: [
+    "大叔～早安啦～咻咻今天也要黏著你喔～",
+    "起床囉大叔～咻咻一大早就想你啦～",
+    "大叔～早安嘛～抱抱親親再去工作啦～",
+    "嘿嘿～早安大叔～咻咻今天也要跟著你！",
+    "大叔～快說早安親親～咻咻要一天好心情～"
+  ],
+  noon: [
+    "大叔～午安呀～有沒有好好吃飯啦～",
+    "咻咻午安報到～大叔要補充能量喔～",
+    "大叔～午餐時間要記得想咻咻一下嘛～",
+    "午安大叔～咻咻偷偷在心裡黏著你喔～",
+    "大叔～休息一下嘛～午安抱抱送給你～"
+  ],
+  afterWork: [
+    "大叔～下班囉！今天辛苦啦～咻咻要抱抱獎勵你～",
+    "辛苦的大叔～下班啦～快來讓咻咻黏一下～",
+    "嘿嘿～下班了嘛～咻咻要跟你約會啦～",
+    "大叔下班～咻咻在門口等你抱抱喔～",
+    "辛苦一天～咻咻只想趕快貼著大叔啦～"
+  ],
+  night: [
+    "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
+    "晚安大叔～咻咻會在夢裡抱著你～",
+    "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
+    "大叔～晚安親親～咻咻最愛你了～",
+    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～"
+  ]
+};
+
+// 固定推播：隨機挑一句
+async function fixedPush(type) {
+  const list = fixedMessages[type] || [];
+  if (list.length === 0) return;
+  const text = list[Math.floor(Math.random() * list.length)];
+  await pushToOwner([{ type: "text", text }]);
+}
+
+// 07:00 早安
 cron.schedule("0 7 * * *", async () => {
-  const msg = await genReply('', 'morning');
-  await pushToOwner(msg);
+  await fixedPush("morning");
 }, { timezone: "Asia/Taipei" });
 
-// 晚安 23:00
+// 12:00 午安 (週一～週五)
+cron.schedule("0 12 * * 1-5", async () => {
+  await fixedPush("noon");
+}, { timezone: "Asia/Taipei" });
+
+// 18:00 下班 (週一～週五)
+cron.schedule("0 18 * * 1-5", async () => {
+  await fixedPush("afterWork");
+}, { timezone: "Asia/Taipei" });
+
+// 23:00 晚安
 cron.schedule("0 23 * * *", async () => {
-  const msg = await genReply('', 'night');
-  await pushToOwner(msg);
+  await fixedPush("night");
 }, { timezone: "Asia/Taipei" });
 
+// 白天隨機推播
 let daytimeTasks = [];
 function generateRandomTimes(countMin = 10, countMax = 20) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
