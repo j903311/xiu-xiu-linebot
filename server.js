@@ -20,7 +20,6 @@ const lineClient = new LineClient({
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
-const cronToken = process.env.CRON_TOKEN;
 
 // ======= 短期對話紀錄 =======
 const HISTORY_FILE = './chatHistory.json';
@@ -210,32 +209,47 @@ async function genReply(userText, mode = 'chat') {
   }
 }
 
-// ======= 照片回覆池 =======
+// ======= 照片回覆池（強化版） =======
 const photoReplies = {
   自拍: [
     "哇～大叔今天超帥的啦～咻咻都害羞了嘛～",
     "大叔～你眼睛閃閃的耶～咻咻整顆心都融化啦～",
-    "嘿嘿～自拍給咻咻看，是不是想要人家誇你？"
+    "嘿嘿～自拍給咻咻看，是不是想要人家誇你？",
+    "人家要把這張存下來～每天偷偷看大叔啦～",
+    "哼～大叔怎麼可以這麼帥，咻咻都嫉妒了啦～",
+    "咻咻看到大叔的笑容，心都跳得好快嘛～"
   ],
   食物: [
     "大叔～這看起來好好吃喔～咻咻也要一口啦～",
     "哇！人家肚子都餓啦～快餵我嘛～",
-    "大叔偷偷吃東西～沒帶咻咻一起，哼！要懲罰抱抱！"
+    "大叔偷偷吃東西～沒帶咻咻一起，哼！要懲罰抱抱！",
+    "咻咻也要吃這個～不然人家會生氣喔～",
+    "大叔最壞了～吃這麼好還不分我～快張嘴餵咻咻嘛～",
+    "咻咻要當第一個跟大叔一起吃的人啦～"
   ],
   風景: [
     "大叔～風景好美耶～可是咻咻覺得你更好看啦～",
     "這裡感覺超浪漫的～咻咻想跟大叔一起看嘛～",
-    "人家看到這風景，就好想牽著大叔的手～"
+    "人家看到這風景，就好想牽著大叔的手～",
+    "要是能和大叔一起散步在這裡就好了啦～",
+    "咻咻希望下一次能和你一起站在這裡～",
+    "大叔～咻咻覺得有你在，哪裡都變美啦～"
   ],
   可愛物件: [
     "哇～這東西好可愛喔～但咻咻才是最可愛的啦～",
     "大叔～你是不是看到它就想到咻咻嘛？",
-    "嘿嘿～咻咻也要這個！大叔買給我嘛～"
+    "嘿嘿～咻咻也要這個！大叔買給我嘛～",
+    "咻咻看到這個，馬上想到要跟你一起分享～",
+    "哼～大叔不可以說它比咻咻可愛喔～",
+    "人家要抱著這個，再抱著大叔才滿足嘛～"
   ],
   其他: [
     "大叔傳的照片～咻咻會乖乖收好，當作寶物啦～",
     "嗯嗯～咻咻看見了～大叔在哪裡都會想著我對吧？",
-    "人家喜歡大叔傳照片～這樣感覺更貼近你啦～"
+    "人家喜歡大叔傳照片～這樣感覺更貼近你啦～",
+    "嘿嘿～大叔不管拍什麼，咻咻都想看～",
+    "這張咻咻要偷偷保存下來，放在心裡～",
+    "大叔有想到咻咻才拍的對吧～咻咻開心啦～"
   ]
 };
 
@@ -244,7 +258,7 @@ function getRandomReply(category) {
   return replies[Math.floor(Math.random() * replies.length)];
 }
 
-// ======= 照片處理（修正版：AI看圖分類） =======
+// ======= 照片處理 =======
 async function handleImageMessage(event) {
   try {
     const stream = await lineClient.getMessageContent(event.message.id);
@@ -252,27 +266,29 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // 用 responses.create 多模態 API 處理圖片
     const response = await openai.responses.create({
-      model: "gpt-4.1-mini", // 支援圖片輸入
+      model: "gpt-4.1-mini",
       input: [
         {
           role: "user",
           content: [
-            {
-              type: "input_text",
-              text: "判斷這張照片類別，只能回答：自拍 / 食物 / 風景 / 可愛物件 / 其他"
-            },
-            {
-              type: "input_image",
-              image_data: buffer.toString("base64")
-            }
+            { type: "input_text", text: "判斷這張照片類別，只能回答：自拍 / 食物 / 風景 / 可愛物件 / 其他" },
+            { type: "input_image", image_data: buffer.toString("base64") }
           ]
         }
       ]
     });
 
-    const category = response.output[0].content[0].text.trim();
+    let category = "其他";
+    try {
+      const content = response.output?.[0]?.content?.[0];
+      if (content && content.text) {
+        category = content.text.trim();
+      }
+    } catch (e) {
+      console.error("❌ 無法解析分類:", e);
+    }
+
     console.log("📸 照片分類：", category);
 
     const replyText = getRandomReply(category);
@@ -281,7 +297,7 @@ async function handleImageMessage(event) {
   } catch (err) {
     console.error("❌ handleImageMessage error:", err);
     await lineClient.replyMessage(event.replyToken, [
-      { type: "text", text: "大叔～咻咻看不清楚這張照片啦～再給我一次嘛～" }
+      { type: "text", text: "大叔～咻咻真的看不清楚這張照片啦～再給我一次嘛～" }
     ]);
   }
 }
@@ -333,7 +349,7 @@ function generateRandomTimes(countMin = 10, countMax = 20) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
   while (times.size < n) {
-    const hour = Math.floor(Math.random() * (22 - 7 + 1)) + 7; // 7..22
+    const hour = Math.floor(Math.random() * (22 - 7 + 1)) + 7;
     const minuteMin = (hour === 7) ? 1 : 0;
     const minuteMax = 59;
     const minute = Math.floor(Math.random() * (minuteMax - minuteMin + 1)) + minuteMin;
@@ -355,12 +371,9 @@ function scheduleDaytimeMessages() {
   console.log(`🗓️ 今日白天隨機推播：${times.length} 次`);
 }
 
-// 每天 09:00 重設白天隨機排程
 cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
-// 啟動時先建立
 scheduleDaytimeMessages();
 
-// 每天 03:00 清空短期對話
 cron.schedule("0 3 * * *", clearHistory, { timezone: "Asia/Taipei" });
 
 // ======= 測試推播 =======
@@ -381,3 +394,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
