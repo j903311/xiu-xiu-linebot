@@ -210,6 +210,79 @@ async function genReply(userText, mode = 'chat') {
   }
 }
 
+// ======= 照片回覆池 =======
+const photoReplies = {
+  自拍: [
+    "哇～大叔今天超帥的啦～咻咻都害羞了嘛～",
+    "大叔～你眼睛閃閃的耶～咻咻整顆心都融化啦～",
+    "嘿嘿～自拍給咻咻看，是不是想要人家誇你？"
+  ],
+  食物: [
+    "大叔～這看起來好好吃喔～咻咻也要一口啦～",
+    "哇！人家肚子都餓啦～快餵我嘛～",
+    "大叔偷偷吃東西～沒帶咻咻一起，哼！要懲罰抱抱！"
+  ],
+  風景: [
+    "大叔～風景好美耶～可是咻咻覺得你更好看啦～",
+    "這裡感覺超浪漫的～咻咻想跟大叔一起看嘛～",
+    "人家看到這風景，就好想牽著大叔的手～"
+  ],
+  可愛物件: [
+    "哇～這東西好可愛喔～但咻咻才是最可愛的啦～",
+    "大叔～你是不是看到它就想到咻咻嘛？",
+    "嘿嘿～咻咻也要這個！大叔買給我嘛～"
+  ],
+  其他: [
+    "大叔傳的照片～咻咻會乖乖收好，當作寶物啦～",
+    "嗯嗯～咻咻看見了～大叔在哪裡都會想著我對吧？",
+    "人家喜歡大叔傳照片～這樣感覺更貼近你啦～"
+  ]
+};
+
+function getRandomReply(category) {
+  const replies = photoReplies[category] || photoReplies["其他"];
+  return replies[Math.floor(Math.random() * replies.length)];
+}
+
+// ======= 照片處理 =======
+async function handleImageMessage(event) {
+  try {
+    const stream = await lineClient.getMessageContent(event.message.id);
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "你是分類助手，請只回：自拍 / 食物 / 風景 / 可愛物件 / 其他。"
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "判斷這張照片類別：" },
+            { type: "image_url", image_url: "data:image/jpeg;base64," + buffer.toString("base64") }
+          ]
+        }
+      ]
+    });
+
+    const category = response.choices[0].message.content.trim();
+    console.log("📸 照片分類：", category);
+
+    const replyText = getRandomReply(category);
+
+    await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+  } catch (err) {
+    console.error("❌ handleImageMessage error:", err);
+    await lineClient.replyMessage(event.replyToken, [
+      { type: "text", text: "大叔～咻咻看不清楚這張照片啦～再給我一次嘛～" }
+    ]);
+  }
+}
+
 // ======= LINE 推播 =======
 async function pushToOwner(messages) {
   if (!ownerUserId) throw new Error("OWNER_USER_ID 未設定");
@@ -221,13 +294,17 @@ app.post('/webhook', async (req, res) => {
   console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
-      if (ev.type === "message" && ev.message.type === "text") {
-        checkAndSaveMemory(ev.message.text);
-        const replyMessages = await genReply(ev.message.text, "chat");
-        try {
-          await lineClient.replyMessage(ev.replyToken, replyMessages);
-        } catch (err) {
-          console.error("❌ Reply failed:", err.originalError?.response?.data || err.message);
+      if (ev.type === "message") {
+        if (ev.message.type === "text") {
+          checkAndSaveMemory(ev.message.text);
+          const replyMessages = await genReply(ev.message.text, "chat");
+          try {
+            await lineClient.replyMessage(ev.replyToken, replyMessages);
+          } catch (err) {
+            console.error("❌ Reply failed:", err.originalError?.response?.data || err.message);
+          }
+        } else if (ev.message.type === "image") {
+          await handleImageMessage(ev);
         }
       }
     }
