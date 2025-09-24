@@ -244,7 +244,7 @@ function getRandomReply(category) {
   return replies[Math.floor(Math.random() * replies.length)];
 }
 
-// ======= 照片處理 =======
+// ======= 照片處理（修正版：AI看圖分類） =======
 async function handleImageMessage(event) {
   try {
     const stream = await lineClient.getMessageContent(event.message.id);
@@ -252,29 +252,32 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "你是分類助手，請只回：自拍 / 食物 / 風景 / 可愛物件 / 其他。"
-        },
+    // 用 responses.create 多模態 API 處理圖片
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini", // 支援圖片輸入
+      input: [
         {
           role: "user",
           content: [
-            { type: "text", text: "判斷這張照片類別：" },
-            { type: "image_url", image_url: "data:image/jpeg;base64," + buffer.toString("base64") }
+            {
+              type: "input_text",
+              text: "判斷這張照片類別，只能回答：自拍 / 食物 / 風景 / 可愛物件 / 其他"
+            },
+            {
+              type: "input_image",
+              image_data: buffer.toString("base64")
+            }
           ]
         }
       ]
     });
 
-    const category = response.choices[0].message.content.trim();
+    const category = response.output[0].content[0].text.trim();
     console.log("📸 照片分類：", category);
 
     const replyText = getRandomReply(category);
-
     await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+
   } catch (err) {
     console.error("❌ handleImageMessage error:", err);
     await lineClient.replyMessage(event.replyToken, [
