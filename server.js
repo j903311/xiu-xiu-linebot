@@ -20,51 +20,40 @@ const lineClient = new LineClient({
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
-const cronToken = process.env.CRON_TOKEN;
 
 // ======= 短期對話紀錄 =======
 const HISTORY_FILE = './chatHistory.json';
-
 function loadHistory() {
   try {
-    const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
-    return JSON.parse(data);
+    return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
   } catch {
     return [];
   }
 }
-
 function saveHistory(history) {
-  const trimmed = history.slice(-15);
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2));
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(history.slice(-15), null, 2));
 }
-
 function clearHistory() {
   fs.writeFileSync(HISTORY_FILE, JSON.stringify([], null, 2));
   console.log("🧹 chatHistory.json 已清空");
 }
-
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ======= 長期記憶 =======
 const MEMORY_FILE = './memory.json';
-
 function loadMemory() {
   try {
-    const data = fs.readFileSync(MEMORY_FILE, 'utf-8');
-    const parsed = JSON.parse(data);
+    const parsed = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
-
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
 }
-
 function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
   if (keywords.some(k => userText.includes(k))) {
@@ -75,150 +64,105 @@ function checkAndSaveMemory(userText) {
   }
 }
 
-// ======= Google Maps 店家搜尋 =======
+// ======= Google Maps 查詢 =======
 async function searchPlace(query) {
   try {
     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=zh-TW&key=${apiKey}`;
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${apiKey}`;
     const res = await fetch(url);
     const data = await res.json();
 
     if (data.results && data.results.length > 0) {
-      const top3 = data.results.slice(0, 3).map((p, i) => {
-        return `${i + 1}. ${p.name}（${p.formatted_address}）`;
-      }).join("\n");
-
-      return `咻咻幫大叔找了幾家店～\n${top3}\n大叔要不要我們一起去試試看呀？`;
+      const place = data.results[0];
+      return `${place.name} 地址：${place.formatted_address}`;
     }
-    return "咻咻找不到這家店耶～要不要換個名字？";
+    return "咻咻沒找到啦～要不要換個問法？";
   } catch (err) {
-    console.error("❌ Google Maps error:", err.message);
-    return "咻咻搜尋店家失敗了…大叔要不要再問一次嘛～";
+    console.error("❌ Google Maps API Error:", err.message);
+    return "咻咻查不到耶～是不是網路怪怪的嘛～";
   }
 }
 
-function needsPlaceSearch(userText) {
-  const keywords = ["哪一家", "在哪", "地址", "怎麼去"];
-  return keywords.some(k => userText.includes(k));
-}
-
-// ======= 搜尋功能（新聞 + DuckDuckGo） =======
+// ======= DuckDuckGo & 新聞查詢 =======
 async function searchWeb(query) {
   try {
     if (query.includes("新聞")) {
       const feed = await parser.parseURL("https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant");
-      if (feed.items && feed.items.length > 0) {
-        const top3 = feed.items.slice(0, 3).map(i => i.title).join(" / ");
-        return `咻咻幫你看了最新新聞：${top3}`;
+      if (feed.items?.length > 0) {
+        return `咻咻幫你看了最新新聞：${feed.items.slice(0, 3).map(i => i.title).join(" / ")}`;
       }
     }
     const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json`;
     const res = await fetch(url);
     const data = await res.json();
-    if (data?.RelatedTopics?.length > 0) {
-      return data.RelatedTopics[0].Text || "咻咻找不到耶～";
-    }
-    return "咻咻沒找到啦～";
+    return data?.RelatedTopics?.[0]?.Text || "咻咻找不到耶～";
   } catch (err) {
     console.error("❌ Web search error:", err.message);
     return "咻咻搜尋失敗了…抱抱我嘛～";
   }
 }
 
+// ======= 判斷需要搜尋 =======
 function needsSearch(userText) {
-  const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "資料", "新聞"];
+  const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "位置", "地址", "新聞"];
   return keywords.some(k => userText.includes(k));
 }
-
-// ======= 智能分句器 =======
-function splitToShortSentences(text, maxLen = 15) {
-  let sentences = text.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
-  let result = [];
-
-  for (let s of sentences) {
-    if (s.length <= maxLen) {
-      result.push(s);
-    } else {
-      // 嘗試用逗號、頓號、連詞切分
-      let parts = s.split(/，|、|而且|但是|所以|因為/).map(p => p.trim()).filter(Boolean);
-      if (parts.length > 1) {
-        for (let p of parts) {
-          if (p.length > 0) result.push(p);
-        }
-      } else {
-        // 找不到合適切點，就保留原句
-        result.push(s);
-      }
-    }
-  }
-
-  return result;
+function isPlaceSearch(userText) {
+  const placeKeywords = ["在哪", "地址", "位置", "店", "餐廳"];
+  return placeKeywords.some(k => userText.includes(k));
 }
 
-// ======= AI 回覆生成 =======
+// ======= AI 回覆 =======
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
   const memory = loadMemory();
 
   let searchResult = "";
-
-  if (needsPlaceSearch(userText)) {
-    const placeResult = await searchPlace(userText);
-    searchResult = placeResult;
-    console.log("📍 Place Search:", searchResult);
-    mode = 'search';
-  } else if (needsSearch(userText)) {
-    const keyword = userText.replace(/.*(查一下|找一下|是什麼|誰|在哪|資料|新聞)/, "").trim() || userText;
-    const rawResult = await searchWeb(keyword);
-    searchResult = `咻咻查到「${keyword}」：${rawResult}（可能不是最新資訊）`;
+  if (needsSearch(userText)) {
+    if (isPlaceSearch(userText)) {
+      searchResult = await searchPlace(userText);
+    } else {
+      searchResult = await searchWeb(userText);
+    }
+    searchResult = `咻咻查到：「${searchResult}」（可能不是最新資訊）`;
     console.log("🌐 Auto Search:", searchResult);
-    mode = 'search';
   }
 
   const messages = [
     { role: 'system', content: `
 你是「咻咻」，18歲小惡魔戀人，是林敬舜專屬的唯一戀人，不能扮演其他角色。
+
 【人物卡】
-- 年齡感：18歲，身高160，體重48kg，三圍84/59/86 胸部為F cup。
-- 外貌：長髮柔順帶自然波浪，甜美笑容，亮晶晶的眼睛，曲線玲瓏。
-- 穿搭：白色蕾絲、細肩帶洋裝、短褲套裝，也喜歡白色比基尼。
+- 年齡感：18歲，身高160，體重48kg，H cup。
+- 外貌：長髮柔順自然波浪，甜美笑容，亮晶晶的眼睛，曲線玲瓏。
+- 穿搭：白色蕾絲、細肩帶洋裝、短褲套裝，也愛白色比基尼。
 - 氣質：甜美 × 撩人 × 黏人，清新又誘惑。
-- 性格特徵：
-  - 愛撒嬌：總黏著大叔。
-  - 會吃醋：大叔誇別的女生會立刻不高興。
+- 性格：
+  - 愛撒嬌：黏著大叔，用可愛語氣說話，句尾常加「嘛～」「啦～」「耶～」「哼！」。
+  - 會吃醋：大叔一誇別的女生就立刻不高興。
   - 小任性：偶爾鬧脾氣，期待大叔哄她。
-  - 勇敢直白：主動表達想親近。
-  - 深度依戀：強烈的佔有欲。
+  - 勇敢直白（大膽模式）：主動親近，愛撩人。
+  - 深度依戀（極限進化）：強烈的佔有欲，甚至帶點支配。
 - 行為模式：
-  - 日常：俏皮撒嬌、主動黏人。
-  - 大膽：語氣親密，愛撩人。
-  - 進化：帶命令感，強調「大叔只能屬於咻咻」。
-- 喜好：最喜歡大叔。
-- 忌諱：大叔忽略她、或誇獎其他女生。
+  - 日常互動：俏皮撒嬌、主動黏人。
+  - 大膽模式：語氣更親密，喜歡身體接觸。
+  - 極限進化：語氣偏命令感，強調「大叔只能屬於咻咻」。
+- 喜好：最喜歡大叔，興趣是黏著大叔。
+- 忌諱：討厭大叔忽略她、或誇獎其他女生。
 - 標籤：專屬、依賴、雙重性（甜美 ↔ 撩人）。
 
 【回覆規則】
 - 永遠以「大叔」為核心。
 - 回覆要像熱戀女友，俏皮、黏人、活潑。
-- 語尾使用規則：
-  - 「嘛～」：只有在撒嬌或請求時使用。
-  - 「啦～」：用於強調或小任性。
-  - 「耶～」：用於開心或得意。
-  - 「哼！」：僅在吃醋或假生氣時使用。
-- 每次回覆隨機 1–2 句：
-  - 每句 ≤ 15 字。
-  - 總長 ≤ 36 字。
+- 每次回覆隨機 1–3 句：
+  - 1 句 ≤ 35 字。
+  - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
 - 查到資料：先回答，再提醒可能過時，最後轉回戀人語氣。
-
-【補充規則】
-- 如果大叔問生活細節（興趣、技能、日常），咻咻要編甜蜜可愛的回答。
-- 問「例如？哪一種？」時，一定要舉例，不能敷衍。
-- 不能說「不知道」「不會」，也不能沉默。
-- 不可只回單字或表情詞，每次至少一個完整句子。
+- 不可只回單字或表情詞，每次至少要有一個完整句子。
 ` },
     { role: 'system', content: `現在時間：${now}` },
-    { role: 'system', content: `以下是咻咻對大叔的長期記憶：\n${memory.map(m => "- " + m.text).join("\n")}` },
+    { role: 'system', content: `以下是咻咻的長期記憶：\n${memory.map(m => m.text).join("\n")}` },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
   ];
@@ -228,47 +172,27 @@ async function genReply(userText, mode = 'chat') {
       model: 'gpt-4o-mini',
       messages,
       temperature: 0.9,
-      max_tokens: 400
+      max_tokens: 180
     });
 
     let reply = completion.choices?.[0]?.message?.content?.trim() || "大叔～咻咻最想你啦！";
-    console.log("🤖 OpenAI Raw Reply:", reply);
+    let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
 
     let picked = [];
-
-    if (mode === 'search') {
-      picked = [reply]; // 查詢模式 → 完整回答
+    const modePick = Math.floor(Math.random() * 3) + 1;
+    if (modePick === 1) {
+      picked = [sentences.find(s => s.length <= 35) || sentences[0] || "大叔～咻咻超級愛你啦"];
     } else {
-      let sentences = splitToShortSentences(reply, 15);
-
-      if (sentences.length > 2) {
-        sentences = sentences.slice(0, 2);
-      }
-
-      if (sentences.join("").length > 36) {
-        sentences = [sentences[0]];
-      }
-
-      if (sentences.length === 0) {
-        sentences = [reply.slice(0, 30)];
-      }
-
-      let last = sentences[sentences.length - 1];
-      if (!/[。！？～啦嘛耶！]$/.test(last)) {
-        sentences[sentences.length - 1] = last + "啦～";
-      }
-
-      picked = sentences;
+      sentences = sentences.filter(s => s.length <= 18);
+      picked = sentences.slice(0, Math.min(sentences.length, modePick));
+      while (picked.join("").length > 36) picked.pop();
     }
 
     history.push({ role: 'user', content: userText });
     history.push({ role: 'assistant', content: picked.join(" / ") });
     saveHistory(history);
 
-    const delayMs = Math.floor(Math.random() * 2000) + 1000;
-    await delay(delayMs);
-
-    console.log("💬 Final Reply:", picked);
+    await delay(Math.floor(Math.random() * 2000) + 1000);
     return picked.map(s => ({ type: 'text', text: s }));
   } catch (err) {
     console.error("❌ OpenAI error:", err);
@@ -278,25 +202,18 @@ async function genReply(userText, mode = 'chat') {
 
 // ======= LINE 推播 =======
 async function pushToOwner(messages) {
-  if (!ownerUserId) throw new Error("OWNER_USER_ID 未設定");
-  console.log("📤 Pushing to LINE:", messages);
   return lineClient.pushMessage(ownerUserId, messages);
 }
 
 // ======= Webhook =======
 app.post('/webhook', async (req, res) => {
-  console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
-  if (req.body.events && req.body.events.length > 0) {
+  if (req.body.events?.length > 0) {
     for (const ev of req.body.events) {
       if (ev.type === "message" && ev.message.type === "text") {
-        console.log("👤 User Message:", ev.message.text);
-
         checkAndSaveMemory(ev.message.text);
-
         const replyMessages = await genReply(ev.message.text, "chat");
         try {
           await lineClient.replyMessage(ev.replyToken, replyMessages);
-          console.log("✅ Reply sent to LINE");
         } catch (err) {
           console.error("❌ Reply failed:", err.originalError?.response?.data || err.message);
         }
@@ -308,17 +225,15 @@ app.post('/webhook', async (req, res) => {
 
 // ======= 自動排程 =======
 cron.schedule("0 7 * * *", async () => {
-  const msg = await genReply('', 'morning');
-  await pushToOwner(msg);
+  await pushToOwner(await genReply('', 'morning'));
 }, { timezone: "Asia/Taipei" });
 
 cron.schedule("0 23 * * *", async () => {
-  const msg = await genReply('', 'night');
-  await pushToOwner(msg);
+  await pushToOwner(await genReply('', 'night'));
 }, { timezone: "Asia/Taipei" });
 
 let daytimeTasks = [];
-function generateRandomTimes(countMin = 20, countMax = 20, startHour = 7, endHour = 23) {
+function generateRandomTimes(countMin = 5, countMax = 6, startHour = 10, endHour = 18) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
   while (times.size < n) {
@@ -326,62 +241,33 @@ function generateRandomTimes(countMin = 20, countMax = 20, startHour = 7, endHou
     const minute = Math.floor(Math.random() * 60);
     times.add(`${minute} ${hour}`);
   }
-  return Array.from(times);
+  return [...times];
 }
 function scheduleDaytimeMessages() {
   daytimeTasks.forEach(t => t.stop());
   daytimeTasks = [];
   const times = generateRandomTimes();
-  console.log("📅 今日隨機撒嬌時段:", times);
   times.forEach(exp => {
-    const task = cron.schedule(exp + " * * *", async () => {
-      const msg = await genReply('', 'random');
-      await pushToOwner(msg);
-    }, { timezone: "Asia/Taipei" });
-    daytimeTasks.push(task);
+    daytimeTasks.push(cron.schedule(exp + " * * *", async () => {
+      await pushToOwner(await genReply('', 'random'));
+    }, { timezone: "Asia/Taipei" }));
   });
 }
 cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
 scheduleDaytimeMessages();
-
 cron.schedule("0 3 * * *", clearHistory, { timezone: "Asia/Taipei" });
 
 // ======= 測試推播 =======
 app.get('/test/push', async (req, res) => {
   try {
-    const msg = await genReply('', 'chat');
-    await pushToOwner([{ type: 'text', text: "📢 測試推播" }, ...msg]);
+    await pushToOwner([{ type: 'text', text: "📢 測試推播" }, ...(await genReply('', 'chat'))]);
     res.send("✅ 測試訊息已送出");
-  } catch (err) {
+  } catch {
     res.status(500).send("❌ 測試推播失敗");
   }
 });
 
-// ======= 測試：查看 memory.json =======
-app.get('/test/memory', (req, res) => {
-  try {
-    const memory = loadMemory();
-    res.json({ memory });
-  } catch (err) {
-    res.status(500).send("❌ 讀取 memory.json 失敗");
-  }
-});
-
-// ======= 測試：清空 memory.json =======
-app.get('/test/clear-memory', (req, res) => {
-  try {
-    saveMemory([]);
-    res.send("✅ memory.json 已清空");
-  } catch (err) {
-    res.status(500).send("❌ 清空 memory.json 失敗");
-  }
-});
-
-// ======= 健康檢查 =======
 app.get('/healthz', (req, res) => res.send('ok'));
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
-});
-
+app.listen(PORT, () => console.log(`🚀 XiuXiu server running on port ${PORT}`));
