@@ -308,8 +308,21 @@ app.post('/webhook', async (req, res) => {
     for (const ev of req.body.events) {
       if (ev.type === "message") {
         if (ev.message.type === "text") {
-          checkAndSaveMemory(ev.message.text);
-          const replyMessages = await genReply(ev.message.text, "chat");
+          const userText = ev.message.text;
+
+          // 🔍 查詢長期記憶
+          if (userText.includes("查記憶") || userText.includes("長期記憶")) {
+            const memory = loadMemory();
+            const logs = memory.logs || [];
+            let reply = logs.length > 0
+              ? logs.map((m, i) => `${i+1}. ${m.text}`).join("\n")
+              : "大叔～咻咻還沒有特別的長期記憶啦～";
+            await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: reply }]);
+            continue;
+          }
+
+          checkAndSaveMemory(userText);
+          const replyMessages = await genReply(userText, "chat");
           try {
             await lineClient.replyMessage(ev.replyToken, replyMessages);
           } catch (err) {
@@ -442,7 +455,3 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
-
-
-
-
