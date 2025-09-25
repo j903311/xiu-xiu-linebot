@@ -56,7 +56,7 @@ function loadMemory() {
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
 }
-function checkAndSaveMemory(userText) {
+async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
   if (keywords.some(k => userText.includes(k))) {
     const memory = loadMemory();
@@ -64,6 +64,9 @@ function checkAndSaveMemory(userText) {
     memory.logs.push({ text: userText, time: new Date().toISOString() });
     saveMemory(memory);
     console.log("💾 記憶新增:", userText);
+
+    // ✅ 新增：即時推播確認
+    await pushToOwner([{ type: "text", text: "大叔～咻咻已經記住囉！" }]);
   }
 }
 
@@ -310,7 +313,7 @@ app.post('/webhook', async (req, res) => {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
 
-          // 🔍 查詢長期記憶
+          // ✅ 查記憶指令
           if (userText.includes("查記憶") || userText.includes("長期記憶")) {
             const memory = loadMemory();
             const logs = memory.logs || [];
@@ -321,7 +324,7 @@ app.post('/webhook', async (req, res) => {
             continue;
           }
 
-          checkAndSaveMemory(userText);
+          await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
           try {
             await lineClient.replyMessage(ev.replyToken, replyMessages);
@@ -455,3 +458,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
