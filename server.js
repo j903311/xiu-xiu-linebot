@@ -327,34 +327,61 @@ app.post('/webhook', async (req, res) => {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
 
-          // ✅ 查記憶指令
-          if (userText.includes("查記憶") || userText.includes("長期記憶")) {
-            const memory = loadMemory();
-            const logs = memory.logs || [];
-            let reply = logs.length > 0
-              ? logs.map((m, i) => `${i+1}. ${m.text}`).join("\n")
-              : "大叔～咻咻還沒有特別的長期記憶啦～";
-            await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: reply }]);
-            continue;
-          }
+          
+// ✅ 查詢長期記憶（新指令）
+if (userText.trim() === "查詢長期記憶") {
+  const memory = loadMemory();
+  const logs = memory.logs || [];
+  let reply = logs.length > 0
+    ? logs.map((m, i) => `${i+1}. ${m.text}`).join("\n")
+    : "大叔～目前沒有長期記憶喔～";
+  await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: reply }]);
+  continue;
+}
+
+// ✅ 記錄長期記憶（新指令）
+if (userText.startsWith("記錄長期記憶")) {
+  const item = userText.replace("記錄長期記憶", "").trim();
+  if (!item) {
+    await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: "要記錄的內容是空的喔～" }]);
+    continue;
+  }
+  const memory = loadMemory();
+  if (!memory.logs) memory.logs = [];
+  memory.logs.push({ text: item, time: new Date().toISOString() });
+  saveMemory(memory);
+  await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已記住：「${item}」` }]);
+  continue;
+}
+
 
           
-          // === 🆕 新增：刪掉長期記憶 ===
-          if (userText.startsWith("刪掉記憶：")) {
-            const item = userText.replace("刪掉記憶：", "").trim();
-            let memory = loadMemory();
-            let logs = memory.logs || [];
-            const idx = logs.findIndex(m => m.text === item);
-            if (idx !== -1) {
-              logs.splice(idx, 1);
-              memory.logs = logs;
-              saveMemory(memory);
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已刪除記憶：「${item}」` }]);
-            } else {
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `找不到記憶：「${item}」` }]);
-            }
-            continue;
-          }
+          
+// ✅ 刪除長期記憶（新指令）
+if (userText.startsWith("刪除長期記憶")) {
+  const key = userText.replace("刪除長期記憶", "").strip().trim();
+  let memory = loadMemory();
+  let logs = memory.logs || [];
+
+  // 先找「完全一致」
+  let idx = logs.findIndex(m => m.text === key);
+
+  if (idx === -1 && key) {
+    // 若找不到完全一致，容許「含有」的第一筆
+    idx = logs.findIndex(m => m.text.includes(key));
+  }
+
+  if (idx !== -1) {
+    const removed = logs.splice(idx, 1)[0];
+    memory.logs = logs;
+    saveMemory(memory);
+    await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已刪除記憶：「${removed.text}」` }]);
+  } else {
+    await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: key ? `找不到相關記憶：「${key}」` : "要刪除哪一條呢？" }]);
+  }
+  continue;
+}
+
 
           // === 🆕 新增：臨時提醒 ===
           const remindMatch = userText.match(/^(今天|明天)(\d{1,2}):(\d{2})提醒我(.+)$/);
@@ -377,7 +404,7 @@ app.post('/webhook', async (req, res) => {
             continue;
           }
 
-          await checkAndSaveMemory(userText);
+          // （已停用自動記憶）await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
           try {
             await lineClient.replyMessage(ev.replyToken, replyMessages);
