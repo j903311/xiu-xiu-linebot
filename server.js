@@ -359,7 +359,7 @@ if (userText.startsWith("記錄長期記憶")) {
           
 // ✅ 刪除長期記憶（新指令）
 if (userText.startsWith("刪除長期記憶")) {
-  const key = userText.replace("刪除長期記憶", "").trim();
+  const key = userText.replace("刪除長期記憶", "").strip().trim();
   let memory = loadMemory();
   let logs = memory.logs || [];
 
@@ -380,6 +380,30 @@ if (userText.startsWith("刪除長期記憶")) {
     await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: key ? `找不到相關記憶：「${key}」` : "要刪除哪一條呢？" }]);
   }
   continue;
+}
+
+
+          // === 🆕 新增：臨時提醒 ===
+          const remindMatch = userText.match(/^(今天|明天)(\d{1,2}):(\d{2})提醒我(.+)$/);
+          if (remindMatch) {
+            const [, dayWord, hour, minute, thing] = remindMatch;
+            let date = new Date();
+            if (dayWord === "明天") date.setDate(date.getDate() + 1);
+            date.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
+
+            const now = new Date();
+            const delay = date.getTime() - now.getTime();
+            if (delay > 0) {
+              setTimeout(() => {
+                pushToOwner([{ type: "text", text: `⏰ 提醒你：${thing.trim()}` }]);
+              }, delay);
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `好的，我會在 ${dayWord}${hour}:${minute} 提醒你：${thing.trim()}` }]);
+            } else {
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `時間已經過了，無法設定提醒。` }]);
+            }
+            continue;
+          }
+
           // （已停用自動記憶）await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
           try {
