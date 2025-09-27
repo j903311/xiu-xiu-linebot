@@ -6,7 +6,6 @@ import fs from 'fs';
 import cron from 'node-cron';
 import fetch from 'node-fetch';
 import Parser from 'rss-parser';
-import { google } from "googleapis";
 
 process.env.TZ = "Asia/Taipei";
 const parser = new Parser();
@@ -71,50 +70,6 @@ async function checkAndSaveMemory(userText) {
   }
 }
 
-
-
-
-// ======= Google Calendar API =======
-function readCredsFromEnv() {
-  // 1) 優先讀純文字 JSON
-  const raw = process.env.GOOGLE_CREDENTIALS_JSON;
-  if (raw && raw.trim()) return raw;
-
-  // 2) 次選：若改用 Base64
-  const b64 = process.env.GOOGLE_CREDENTIALS_BASE64;
-  if (b64 && b64.trim()) return Buffer.from(b64, "base64").toString("utf8");
-
-  throw new Error("Missing GOOGLE_CREDENTIALS_JSON or GOOGLE_CREDENTIALS_BASE64");
-}
-
-let credentials;
-try {
-  const raw = readCredsFromEnv();
-  // 避免貼上時混入反引號或尾逗號
-  const sanitized = raw
-    .replace(/^[\s`]+|[\s`]+$/g, "")   // 去掉頭尾空白與反引號
-    .replace(/,\s*}/g, "}");            // 去掉尾逗號（若有）
-  credentials = JSON.parse(sanitized);
-} catch (e) {
-  console.error("❌ 解析 GOOGLE_CREDENTIALS_JSON 失敗：", e.message);
-  throw e;
-}
-
-const auth = new google.auth.GoogleAuth({
-  credentials,
-  scopes: ["https://www.googleapis.com/auth/calendar"],
-});
-const calendar = google.calendar({ version: "v3", auth });
-
-async function addEvent(summary, date) {
-  const event = {
-    summary,
-    start: { dateTime: date.toISOString(), timeZone: "Asia/Taipei" },
-    end: { dateTime: new Date(date.getTime() + 30 * 60000).toISOString(), timeZone: "Asia/Taipei" },
-  };
-  await calendar.events.insert({ calendarId: "primary", resource: event });
-  console.log("✅ 已新增事件：", summary);
-}
 // ======= Google Maps 地點搜尋 =======
 async function searchPlace(query) {
   try {
@@ -437,21 +392,6 @@ app.post('/webhook', async (req, res) => {
             }
             continue;
           }
-
-          
-// === 🆕 新增：加行程 ===
-const eventMatch = userText.match(/^加行程 (今天|明天)(\d{1,2}):(\d{2}) (.+)$/);
-if (eventMatch) {
-  const [, dayWord, hour, minute, thing] = eventMatch;
-  let date = new Date();
-  if (dayWord === "明天") date.setDate(date.getDate() + 1);
-  date.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
-
-  await addEvent(thing.trim(), date);
-  await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `✅ 已幫你在 Google 行事曆加上 ${dayWord}${hour}:${minute} ${thing}` }]);
-  continue;
-}
-
 
           // === 🆕 新增：臨時提醒 ===
           const remindMatch = userText.match(/^(今天|明天)(\d{1,2}):(\d{2})提醒我(.+)$/);
