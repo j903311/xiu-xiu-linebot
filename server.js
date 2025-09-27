@@ -359,7 +359,7 @@ if (userText.startsWith("記錄長期記憶")) {
           
 // ✅ 刪除長期記憶（新指令）
 if (userText.startsWith("刪除長期記憶")) {
-  const key = userText.replace("刪除長期記憶", "").strip().trim();
+  const key = userText.replace("刪除長期記憶", "").trim();
   let memory = loadMemory();
   let logs = memory.logs || [];
 
@@ -380,11 +380,6 @@ if (userText.startsWith("刪除長期記憶")) {
     await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: key ? `找不到相關記憶：「${key}」` : "要刪除哪一條呢？" }]);
   }
   continue;
-}
-
-
-                    }
-
           // （已停用自動記憶）await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
           try {
