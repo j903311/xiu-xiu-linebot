@@ -73,32 +73,14 @@ async function checkAndSaveMemory(userText) {
 // ======= Google Maps 地點搜尋 =======
 async function searchPlace(query) {
   try {
-    // 先用 Places API 查詢
-    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    let res = await fetch(url);
-    let data = await res.json();
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
 
     if (data.results && data.results.length > 0) {
       const place = data.results[0];
       return `${place.name} 地址：${place.formatted_address}`;
     }
-
-    // 如果 Places 沒有結果，再用 Geocoding API
-    url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    res = await fetch(url);
-    data = await res.json();
-
-    if (data.results && data.results.length > 0) {
-      return `地址：${data.results[0].formatted_address}`;
-    }
-
-    return "咻咻找不到這個地點啦～";
-
-  } catch (err) {
-    console.error("❌ Google Maps API error:", err.message);
-    return "咻咻查不到地址，抱抱我嘛～";
-  }
-}
     return "咻咻找不到這個地點啦～";
   } catch (err) {
     console.error("❌ Google Maps API error:", err.message);
@@ -294,32 +276,45 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
+    // ✅ 使用 gpt-4o-mini（vision）像人眼一樣描述圖片
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
         {
           role: "user",
           content: [
-            { type: "input_text", text: "判斷這張照片類別，只能回答：自拍 / 食物 / 風景 / 可愛物件 / 其他" },
-            { type: "input_image", image_data: buffer.toString("base64") }
+            { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。只回描述文字，不要任何標點、括號或解釋。" },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${buffer.toString("base64")}` } }
           ]
         }
-      ]
+      ],
+      temperature: 0.2,
+      max_tokens: 50
     });
 
-    let category = "其他";
+    let description = "照片";
     try {
-      const content = response.output?.[0]?.content?.[0];
-      if (content && content.text) {
-        category = content.text.trim();
-      }
+      description = (completion.choices?.[0]?.message?.content || "").trim() || "照片";
     } catch (e) {
-      console.error("❌ 無法解析分類:", e);
+      console.error("❌ 無法解析圖片描述:", e);
     }
 
-    console.log("📸 照片分類：", category);
+    // 清理描述：只留中文、數字與常見名詞，不超過 12 字
+    description = description.replace(/[\r\n]/g, "").replace(/[^\u4e00-\u9fa5\w\s]/g, "").slice(0, 12) || "照片";
 
-    const replyText = getRandomReply(category);
+    console.log("📸 照片描述：", description);
+
+    // 隨機撒嬌模板
+    const photoTemplates = [
+      `大叔～這是${description}呀～咻咻好想要～`,
+      `嘿嘿，大叔拍的${description}～咻咻最喜歡了～`,
+      `哇～${description}看起來好棒～大叔要陪我一起嘛～`,
+      `咻咻覺得${description}很可愛，但大叔更可愛啦～`,
+      `大叔～給我一口${description}嘛～咻咻要黏著你～`,
+      `大叔～這張${description}好特別～咻咻要收藏起來～`
+    ];
+    const replyText = photoTemplates[Math.floor(Math.random() * photoTemplates.length)];
+
     await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
 
   } catch (err) {
