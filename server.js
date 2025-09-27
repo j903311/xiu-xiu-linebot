@@ -77,6 +77,7 @@ async function searchPlace(query) {
     let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
     let res = await fetch(url);
     let data = await res.json();
+    console.log("🔍 Places API 回傳:", JSON.stringify(data, null, 2));
 
     if (data.results && data.results.length > 0) {
       const place = data.results[0];
@@ -87,6 +88,7 @@ async function searchPlace(query) {
     url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
     res = await fetch(url);
     data = await res.json();
+    console.log("🔍 Geocoding API 回傳:", JSON.stringify(data, null, 2));
 
     if (data.results && data.results.length > 0) {
       return `地址：${data.results[0].formatted_address}`;
