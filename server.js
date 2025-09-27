@@ -276,43 +276,35 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 使用 gpt-4o-mini Vision 模型，讓咻咻像人眼一樣描述圖片
-    const response = await openai.chat.completions.create({
+    // ✅ 使用 gpt-4o-mini（vision）像人眼一樣描述圖片
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。" },
+            { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。只回描述文字，不要任何標點、括號或解釋。" },
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${buffer.toString("base64")}` } }
           ]
         }
-      ]
+      ],
+      temperature: 0.2,
+      max_tokens: 50
     });
 
     let description = "照片";
     try {
-      description = response.choices?.[0]?.message?.content?.trim() || "照片";
+      description = (completion.choices?.[0]?.message?.content || "").trim() || "照片";
     } catch (e) {
       console.error("❌ 無法解析圖片描述:", e);
     }
 
+    // 清理描述：只留中文、數字與常見名詞，不超過 12 字
+    description = description.replace(/[\r\n]/g, "").replace(/[^\u4e00-\u9fa5\w\s]/g, "").slice(0, 12) || "照片";
+
     console.log("📸 照片描述：", description);
 
     const replyText = `大叔～這是${description}耶～咻咻好喜歡～`;
-    await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
-
-  } catch (err) {
-    console.error("❌ handleImageMessage error:", err);
-    await lineClient.replyMessage(event.replyToken, [
-      { type: "text", text: "大叔～咻咻真的看不清楚這張照片啦～再給我一次嘛～" }
-    ]);
-  }
-}
-
-    console.log("📸 照片分類：", category);
-
-    const replyText = getRandomReply(category);
     await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
 
   } catch (err) {
@@ -367,7 +359,26 @@ app.post('/webhook', async (req, res) => {
             continue;
           }
 
-          
+          // === 🆕 新增：臨時提醒 ===
+          const remindMatch = userText.match(/^(今天|明天)(\d{1,2}):(\d{2})提醒我(.+)$/);
+          if (remindMatch) {
+            const [, dayWord, hour, minute, thing] = remindMatch;
+            let date = new Date();
+            if (dayWord === "明天") date.setDate(date.getDate() + 1);
+            date.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
+
+            const now = new Date();
+            const delay = date.getTime() - now.getTime();
+            if (delay > 0) {
+              setTimeout(() => {
+                pushToOwner([{ type: "text", text: `⏰ 提醒你：${thing.trim()}` }]);
+              }, delay);
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `好的，我會在 ${dayWord}${hour}:${minute} 提醒你：${thing.trim()}` }]);
+            } else {
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `時間已經過了，無法設定提醒。` }]);
+            }
+            continue;
+          }
 
           await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
