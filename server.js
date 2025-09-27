@@ -73,7 +73,6 @@ async function checkAndSaveMemory(userText) {
 
 
 // ======= Google Calendar API =======
-const auth = new 
 // ======= Google Calendar API =======
 const CRED_PATH = "./credentials.json";
 if (process.env.GOOGLE_CREDENTIALS_JSON && !fs.existsSync(CRED_PATH)) {
@@ -96,7 +95,6 @@ async function addEvent(summary, date) {
   console.log("✅ 已新增事件：", summary);
 }
 
-const calendar = google.calendar({ version: "v3", auth });
 
 async function addEvent(summary, date) {
   const event = {
