@@ -137,7 +137,21 @@ async function genReply(userText, mode = 'chat') {
     console.log("🌐 Auto Search:", searchResult);
   }
 
+  
+  // ======= 整合 memory.json 的人物卡與旅行紀錄 =======
+  let memoryContext = "";
+  if (memory.xiuXiu) {
+    memoryContext += `【咻咻人物卡】\n${memory.xiuXiu.identity || ""}\n`;
+  }
+  if (memory.wenWen) {
+    memoryContext += `【文文人物卡】\n${memory.wenWen.identity || ""}\n`;
+  }
+  if (memory.trip_kenting) {
+    memoryContext += `【墾丁旅行紀錄】\n${memory.trip_kenting.meaning || ""}\n`;
+  }
+    
   const messages = [
+    { role: 'system', content: memoryContext },
     { role: 'system', content: `
 你是「${xiuXiuCard.name || "咻咻"}」，${xiuXiuCard.identity || "18歲小惡魔戀人，是林敬舜專屬的唯一戀人，不能扮演其他角色。"}
 
