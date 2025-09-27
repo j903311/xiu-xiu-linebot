@@ -73,10 +73,29 @@ async function checkAndSaveMemory(userText) {
 
 
 // ======= Google Calendar API =======
+const auth = new 
+// ======= Google Calendar API =======
+const CRED_PATH = "./credentials.json";
+if (process.env.GOOGLE_CREDENTIALS_JSON && !fs.existsSync(CRED_PATH)) {
+  fs.writeFileSync(CRED_PATH, process.env.GOOGLE_CREDENTIALS_JSON);
+}
+
 const auth = new google.auth.GoogleAuth({
-  keyFile: "./just-rhythm-473014-g0-984bf5456e67.json",
+  keyFile: CRED_PATH,
   scopes: ["https://www.googleapis.com/auth/calendar"],
 });
+const calendar = google.calendar({ version: "v3", auth });
+
+async function addEvent(summary, date) {
+  const event = {
+    summary,
+    start: { dateTime: date.toISOString(), timeZone: "Asia/Taipei" },
+    end: { dateTime: new Date(date.getTime() + 30 * 60000).toISOString(), timeZone: "Asia/Taipei" },
+  };
+  await calendar.events.insert({ calendarId: "primary", resource: event });
+  console.log("✅ 已新增事件：", summary);
+}
+
 const calendar = google.calendar({ version: "v3", auth });
 
 async function addEvent(summary, date) {
