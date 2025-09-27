@@ -73,8 +73,32 @@ async function checkAndSaveMemory(userText) {
 
 
 
+
 // ======= Google Calendar API =======
-const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+function readCredsFromEnv() {
+  // 1) 優先讀純文字 JSON
+  const raw = process.env.GOOGLE_CREDENTIALS_JSON;
+  if (raw && raw.trim()) return raw;
+
+  // 2) 次選：若改用 Base64
+  const b64 = process.env.GOOGLE_CREDENTIALS_BASE64;
+  if (b64 && b64.trim()) return Buffer.from(b64, "base64").toString("utf8");
+
+  throw new Error("Missing GOOGLE_CREDENTIALS_JSON or GOOGLE_CREDENTIALS_BASE64");
+}
+
+let credentials;
+try {
+  const raw = readCredsFromEnv();
+  // 避免貼上時混入反引號或尾逗號
+  const sanitized = raw
+    .replace(/^[\s`]+|[\s`]+$/g, "")   // 去掉頭尾空白與反引號
+    .replace(/,\s*}/g, "}");            // 去掉尾逗號（若有）
+  credentials = JSON.parse(sanitized);
+} catch (e) {
+  console.error("❌ 解析 GOOGLE_CREDENTIALS_JSON 失敗：", e.message);
+  throw e;
+}
 
 const auth = new google.auth.GoogleAuth({
   credentials,
