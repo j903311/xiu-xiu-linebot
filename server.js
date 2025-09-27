@@ -232,7 +232,11 @@ async function genReply(userText, mode = 'chat') {
     const delayMs = Math.floor(Math.random() * 2000) + 1000;
     await delay(delayMs);
 
-    return picked.map(s => ({ type: 'text', text: s }));
+    let replyMessages = picked.map(s => ({ type: 'text', text: s }));
+if (searchResult) {
+  replyMessages.unshift({ type: "text", text: searchResult });
+}
+return replyMessages;
   } catch (err) {
     console.error("❌ OpenAI error:", err);
     return [{ type: 'text', text: "大叔～咻咻卡住了，抱抱我嘛～" }];
