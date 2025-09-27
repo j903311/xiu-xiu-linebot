@@ -72,15 +72,12 @@ async function checkAndSaveMemory(userText) {
 }
 
 
+
 // ======= Google Calendar API =======
-// ======= Google Calendar API =======
-const CRED_PATH = "./credentials.json";
-if (process.env.GOOGLE_CREDENTIALS_JSON && !fs.existsSync(CRED_PATH)) {
-  fs.writeFileSync(CRED_PATH, process.env.GOOGLE_CREDENTIALS_JSON);
-}
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
 
 const auth = new google.auth.GoogleAuth({
-  keyFile: CRED_PATH,
+  credentials,
   scopes: ["https://www.googleapis.com/auth/calendar"],
 });
 const calendar = google.calendar({ version: "v3", auth });
@@ -94,10 +91,6 @@ async function addEvent(summary, date) {
   await calendar.events.insert({ calendarId: "primary", resource: event });
   console.log("✅ 已新增事件：", summary);
 }
-
-
-
-
 // ======= Google Maps 地點搜尋 =======
 async function searchPlace(query) {
   try {
