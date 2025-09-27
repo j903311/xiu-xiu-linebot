@@ -276,28 +276,39 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
+    // ✅ 使用 gpt-4o-mini Vision 模型，讓咻咻像人眼一樣描述圖片
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
         {
           role: "user",
           content: [
-            { type: "input_text", text: "判斷這張照片類別，只能回答：自拍 / 食物 / 風景 / 可愛物件 / 其他" },
-            { type: "input_image", image_data: buffer.toString("base64") }
+            { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。" },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${buffer.toString("base64")}` } }
           ]
         }
       ]
     });
 
-    let category = "其他";
+    let description = "照片";
     try {
-      const content = response.output?.[0]?.content?.[0];
-      if (content && content.text) {
-        category = content.text.trim();
-      }
+      description = response.choices?.[0]?.message?.content?.trim() || "照片";
     } catch (e) {
-      console.error("❌ 無法解析分類:", e);
+      console.error("❌ 無法解析圖片描述:", e);
     }
+
+    console.log("📸 照片描述：", description);
+
+    const replyText = `大叔～這是${description}耶～咻咻好喜歡～`;
+    await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+
+  } catch (err) {
+    console.error("❌ handleImageMessage error:", err);
+    await lineClient.replyMessage(event.replyToken, [
+      { type: "text", text: "大叔～咻咻真的看不清楚這張照片啦～再給我一次嘛～" }
+    ]);
+  }
+}
 
     console.log("📸 照片分類：", category);
 
@@ -327,84 +338,38 @@ app.post('/webhook', async (req, res) => {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
 
-          
-// ✅ 查詢長期記憶（新指令）
-if (userText.trim() === "查詢長期記憶") {
-  const memory = loadMemory();
-  const logs = memory.logs || [];
-  let reply = logs.length > 0
-    ? logs.map((m, i) => `${i+1}. ${m.text}`).join("\n")
-    : "大叔～目前沒有長期記憶喔～";
-  await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: reply }]);
-  continue;
-}
-
-// ✅ 記錄長期記憶（新指令）
-if (userText.startsWith("記錄長期記憶")) {
-  const item = userText.replace("記錄長期記憶", "").trim();
-  if (!item) {
-    await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: "要記錄的內容是空的喔～" }]);
-    continue;
-  }
-  const memory = loadMemory();
-  if (!memory.logs) memory.logs = [];
-  memory.logs.push({ text: item, time: new Date().toISOString() });
-  saveMemory(memory);
-  await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已記住：「${item}」` }]);
-  continue;
-}
-
+          // ✅ 查記憶指令
+          if (userText.includes("查記憶") || userText.includes("長期記憶")) {
+            const memory = loadMemory();
+            const logs = memory.logs || [];
+            let reply = logs.length > 0
+              ? logs.map((m, i) => `${i+1}. ${m.text}`).join("\n")
+              : "大叔～咻咻還沒有特別的長期記憶啦～";
+            await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: reply }]);
+            continue;
+          }
 
           
-          
-// ✅ 刪除長期記憶（新指令）
-if (userText.startsWith("刪除長期記憶")) {
-  const key = userText.replace("刪除長期記憶", "").strip().trim();
-  let memory = loadMemory();
-  let logs = memory.logs || [];
-
-  // 先找「完全一致」
-  let idx = logs.findIndex(m => m.text === key);
-
-  if (idx === -1 && key) {
-    // 若找不到完全一致，容許「含有」的第一筆
-    idx = logs.findIndex(m => m.text.includes(key));
-  }
-
-  if (idx !== -1) {
-    const removed = logs.splice(idx, 1)[0];
-    memory.logs = logs;
-    saveMemory(memory);
-    await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已刪除記憶：「${removed.text}」` }]);
-  } else {
-    await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: key ? `找不到相關記憶：「${key}」` : "要刪除哪一條呢？" }]);
-  }
-  continue;
-}
-
-
-          // === 🆕 新增：臨時提醒 ===
-          const remindMatch = userText.match(/^(今天|明天)(\d{1,2}):(\d{2})提醒我(.+)$/);
-          if (remindMatch) {
-            const [, dayWord, hour, minute, thing] = remindMatch;
-            let date = new Date();
-            if (dayWord === "明天") date.setDate(date.getDate() + 1);
-            date.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
-
-            const now = new Date();
-            const delay = date.getTime() - now.getTime();
-            if (delay > 0) {
-              setTimeout(() => {
-                pushToOwner([{ type: "text", text: `⏰ 提醒你：${thing.trim()}` }]);
-              }, delay);
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `好的，我會在 ${dayWord}${hour}:${minute} 提醒你：${thing.trim()}` }]);
+          // === 🆕 新增：刪掉長期記憶 ===
+          if (userText.startsWith("刪掉記憶：")) {
+            const item = userText.replace("刪掉記憶：", "").trim();
+            let memory = loadMemory();
+            let logs = memory.logs || [];
+            const idx = logs.findIndex(m => m.text === item);
+            if (idx !== -1) {
+              logs.splice(idx, 1);
+              memory.logs = logs;
+              saveMemory(memory);
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已刪除記憶：「${item}」` }]);
             } else {
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `時間已經過了，無法設定提醒。` }]);
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `找不到記憶：「${item}」` }]);
             }
             continue;
           }
 
-          // （已停用自動記憶）await checkAndSaveMemory(userText);
+          
+
+          await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
           try {
             await lineClient.replyMessage(ev.replyToken, replyMessages);
