@@ -304,7 +304,17 @@ async function handleImageMessage(event) {
 
     console.log("📸 照片描述：", description);
 
-    const replyText = `大叔～這是${description}耶～咻咻好喜歡～`;
+    // 隨機撒嬌模板
+    const photoTemplates = [
+      `大叔～這是${description}呀～咻咻好想要～`,
+      `嘿嘿，大叔拍的${description}～咻咻最喜歡了～`,
+      `哇～${description}看起來好棒～大叔要陪我一起嘛～`,
+      `咻咻覺得${description}很可愛，但大叔更可愛啦～`,
+      `大叔～給我一口${description}嘛～咻咻要黏著你～`,
+      `大叔～這張${description}好特別～咻咻要收藏起來～`
+    ];
+    const replyText = photoTemplates[Math.floor(Math.random() * photoTemplates.length)];
+
     await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
 
   } catch (err) {
