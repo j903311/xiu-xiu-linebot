@@ -74,7 +74,7 @@ async function checkAndSaveMemory(userText) {
 async function searchPlace(query) {
   try {
     // 先用 Places API 查詢
-    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=zh-TW&key=${process.env.GOOGLE_MAPS_API_KEY}`;
     let res = await fetch(url);
     let data = await res.json();
     console.log("🔍 Places API 回傳:", JSON.stringify(data, null, 2));
@@ -87,7 +87,7 @@ async function searchPlace(query) {
     }
 
     // 如果 Places 沒有結果，再用 Geocoding API
-    url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&language=zh-TW&key=${process.env.GOOGLE_MAPS_API_KEY}`;
     res = await fetch(url);
     data = await res.json();
     console.log("🔍 Geocoding API 回傳:", JSON.stringify(data, null, 2));
