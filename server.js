@@ -324,6 +324,45 @@ app.post('/webhook', async (req, res) => {
             continue;
           }
 
+          
+          // === 🆕 新增：刪掉長期記憶 ===
+          if (userText.startsWith("刪掉記憶：")) {
+            const item = userText.replace("刪掉記憶：", "").trim();
+            let memory = loadMemory();
+            let logs = memory.logs || [];
+            const idx = logs.findIndex(m => m.text === item);
+            if (idx !== -1) {
+              logs.splice(idx, 1);
+              memory.logs = logs;
+              saveMemory(memory);
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已刪除記憶：「${item}」` }]);
+            } else {
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `找不到記憶：「${item}」` }]);
+            }
+            continue;
+          }
+
+          // === 🆕 新增：臨時提醒 ===
+          const remindMatch = userText.match(/^(今天|明天)(\d{1,2}):(\d{2})提醒我(.+)$/);
+          if (remindMatch) {
+            const [, dayWord, hour, minute, thing] = remindMatch;
+            let date = new Date();
+            if (dayWord === "明天") date.setDate(date.getDate() + 1);
+            date.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
+
+            const now = new Date();
+            const delay = date.getTime() - now.getTime();
+            if (delay > 0) {
+              setTimeout(() => {
+                pushToOwner([{ type: "text", text: `⏰ 提醒你：${thing.trim()}` }]);
+              }, delay);
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `好的，我會在 ${dayWord}${hour}:${minute} 提醒你：${thing.trim()}` }]);
+            } else {
+              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `時間已經過了，無法設定提醒。` }]);
+            }
+            continue;
+          }
+
           await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
           try {
