@@ -412,6 +412,10 @@ app.post('/webhook', async (req, res) => {
 
           await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
+
+if (searchResult) {
+  replyMessages.unshift({ type: "text", text: searchResult });
+}
           try {
             await lineClient.replyMessage(ev.replyToken, replyMessages);
           } catch (err) {
