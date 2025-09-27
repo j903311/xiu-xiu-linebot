@@ -73,14 +73,32 @@ async function checkAndSaveMemory(userText) {
 // ======= Google Maps 地點搜尋 =======
 async function searchPlace(query) {
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    // 先用 Places API 查詢
+    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    let res = await fetch(url);
+    let data = await res.json();
 
     if (data.results && data.results.length > 0) {
       const place = data.results[0];
       return `${place.name} 地址：${place.formatted_address}`;
     }
+
+    // 如果 Places 沒有結果，再用 Geocoding API
+    url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+    res = await fetch(url);
+    data = await res.json();
+
+    if (data.results && data.results.length > 0) {
+      return `地址：${data.results[0].formatted_address}`;
+    }
+
+    return "咻咻找不到這個地點啦～";
+
+  } catch (err) {
+    console.error("❌ Google Maps API error:", err.message);
+    return "咻咻查不到地址，抱抱我嘛～";
+  }
+}
     return "咻咻找不到這個地點啦～";
   } catch (err) {
     console.error("❌ Google Maps API error:", err.message);
