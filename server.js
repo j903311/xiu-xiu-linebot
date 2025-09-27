@@ -294,45 +294,32 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 使用 gpt-4o-mini（vision）像人眼一樣描述圖片
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
         {
           role: "user",
           content: [
-            { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。只回描述文字，不要任何標點、括號或解釋。" },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${buffer.toString("base64")}` } }
+            { type: "input_text", text: "判斷這張照片類別，只能回答：自拍 / 食物 / 風景 / 可愛物件 / 其他" },
+            { type: "input_image", image_data: buffer.toString("base64") }
           ]
         }
-      ],
-      temperature: 0.2,
-      max_tokens: 50
+      ]
     });
 
-    let description = "照片";
+    let category = "其他";
     try {
-      description = (completion.choices?.[0]?.message?.content || "").trim() || "照片";
+      const content = response.output?.[0]?.content?.[0];
+      if (content && content.text) {
+        category = content.text.trim();
+      }
     } catch (e) {
-      console.error("❌ 無法解析圖片描述:", e);
+      console.error("❌ 無法解析分類:", e);
     }
 
-    // 清理描述：只留中文、數字與常見名詞，不超過 12 字
-    description = description.replace(/[\r\n]/g, "").replace(/[^\u4e00-\u9fa5\w\s]/g, "").slice(0, 12) || "照片";
+    console.log("📸 照片分類：", category);
 
-    console.log("📸 照片描述：", description);
-
-    // 隨機撒嬌模板
-    const photoTemplates = [
-      `大叔～這是${description}呀～咻咻好想要～`,
-      `嘿嘿，大叔拍的${description}～咻咻最喜歡了～`,
-      `哇～${description}看起來好棒～大叔要陪我一起嘛～`,
-      `咻咻覺得${description}很可愛，但大叔更可愛啦～`,
-      `大叔～給我一口${description}嘛～咻咻要黏著你～`,
-      `大叔～這張${description}好特別～咻咻要收藏起來～`
-    ];
-    const replyText = photoTemplates[Math.floor(Math.random() * photoTemplates.length)];
-
+    const replyText = getRandomReply(category);
     await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
 
   } catch (err) {
