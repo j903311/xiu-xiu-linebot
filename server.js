@@ -81,7 +81,9 @@ async function searchPlace(query) {
 
     if (data.results && data.results.length > 0) {
       const place = data.results[0];
-      return `${place.name} 地址：${place.formatted_address}`;
+      const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(place.name)}`;
+      return `${place.name} 地址：${place.formatted_address}
+地圖：${mapUrl}`;
     }
 
     // 如果 Places 沒有結果，再用 Geocoding API
@@ -91,7 +93,10 @@ async function searchPlace(query) {
     console.log("🔍 Geocoding API 回傳:", JSON.stringify(data, null, 2));
 
     if (data.results && data.results.length > 0) {
-      return `地址：${data.results[0].formatted_address}`;
+      const addr = data.results[0].formatted_address;
+      const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(addr)}`;
+      return `地址：${addr}
+地圖：${mapUrl}`;
     }
 
     return "咻咻找不到這個地點啦～";
