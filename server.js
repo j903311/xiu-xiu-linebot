@@ -96,15 +96,6 @@ async function addEvent(summary, date) {
 }
 
 
-async function addEvent(summary, date) {
-  const event = {
-    summary,
-    start: { dateTime: date.toISOString(), timeZone: "Asia/Taipei" },
-    end: { dateTime: new Date(date.getTime() + 30 * 60000).toISOString(), timeZone: "Asia/Taipei" },
-  };
-  await calendar.events.insert({ calendarId: "primary", resource: event });
-  console.log("✅ 已新增事件：", summary);
-}
 
 
 // ======= Google Maps 地點搜尋 =======
