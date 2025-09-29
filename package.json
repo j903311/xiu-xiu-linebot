@@ -4,11 +4,10 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "postinstall": "npm install @google/generative-ai@0.19.0"
+    "start": "node server.js"
   },
   "dependencies": {
-    "@google/generative-ai": "0.19.0",
+    "@google/generative-ai": "latest",
     "@line/bot-sdk": "^7.5.2",
     "cron": "^2.3.0",
     "dotenv": "^16.0.3",
