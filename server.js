@@ -12,6 +12,28 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 
+// ======= 檢查 SDK 版本與測試呼叫 =======
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
+try {
+  const gg = require('@google/generative-ai/package.json');
+  console.log('📦 @google/generative-ai version =', gg.version);
+} catch (e) {
+  console.log('⚠️ 無法讀取 SDK 版本:', e.message);
+}
+
+(async () => {
+  try {
+    const testResult = await googleModel.generateContent("Hello from Railway!");
+    console.log("✅ 測試回應:", testResult.response.text());
+  } catch (err) {
+    console.error("❌ 測試錯誤:", err.message);
+  }
+})();
+
+
+
 process.env.TZ = "Asia/Taipei";
 const parser = new Parser();
 
