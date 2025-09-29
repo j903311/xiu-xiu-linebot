@@ -76,54 +76,11 @@ async function checkAndSaveMemory(userText) {
 }
 
 // ======= Google Maps 地點搜尋 =======
-async function searchPlace(query) {
-  try {
-    // 先用 Places API 查詢
-    let url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=zh-TW&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    let res = await fetch(url);
-    let data = await res.json();
-    console.log("🔍 Places API 回傳:", JSON.stringify(data, null, 2));
 
-    if (data.results && data.results.length > 0) {
-      const place = data.results[0];
-      const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(place.name)}`;
-      return `${place.name} 地址：${place.formatted_address}
-地圖：${mapUrl}`;
-    }
-
-    // 如果 Places 沒有結果，再用 Geocoding API
-    url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&language=zh-TW&key=${process.env.GOOGLE_MAPS_API_KEY}`;
-    res = await fetch(url);
-    data = await res.json();
-    console.log("🔍 Geocoding API 回傳:", JSON.stringify(data, null, 2));
-
-    if (data.results && data.results.length > 0) {
-      const addr = data.results[0].formatted_address;
-      const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(addr)}`;
-      return `地址：${addr}
-地圖：${mapUrl}`;
-    }
-
-    return `咻咻找不到這個地點啦～ (status=${data.status || "unknown"}, error=${data.error_message || "none"})`;
-
-  } catch (err) {
-    console.error("❌ Google Maps API error:", err.message);
-    return "咻咻查不到地址，抱抱我嘛～";
-  }
-}
 
 // ======= 搜尋功能（新聞 + Google Maps + Google AI） =======
 async function searchWeb(query) {
   try {
-    if (query.includes("地址") || query.includes("在哪") || query.includes("在哪裡")) {
-      const keyword = query
-        .replace(/地址/g, "")
-        .replace(/在哪裡/g, "")
-        .replace(/在哪/g, "")
-        .trim();
-      return await searchPlace(keyword);
-    }
-
     if (query.includes("新聞")) {
       const feed = await parser.parseURL("https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant");
       if (feed.items && feed.items.length > 0) {
@@ -132,7 +89,7 @@ async function searchWeb(query) {
       }
     }
 
-    // 直接用 Google AI 回答
+    // 一律用 Google AI 查詢
     try {
       const result = await googleModel.generateContent(query);
       const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
