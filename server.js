@@ -26,7 +26,7 @@ async function searchWeb(query) {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣，簡短甜蜜地告訴大叔新聞內容。回覆20~50字，語氣要隨機變化，有時撒嬌、有時俏皮。" },
+          { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣，簡短甜蜜地告訴大叔新聞內容。回覆20~50字，語氣要隨機變化，有時撒嬌、有時俏皮。。回覆20~50字，不要太長，也不要使用任何 emoji 或符號，只用文字" },
           { role: "user", content: rssResult }
         ],
         temperature: 0.9,
@@ -39,7 +39,7 @@ async function searchWeb(query) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。回覆20~50字，不要太長。語氣要隨機變化，有時撒嬌、有時俏皮。" },
+        { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。回覆20~50字，不要太長。語氣要隨機變化，有時撒嬌、有時俏皮。。回覆20~50字，不要太長，也不要使用任何 emoji 或符號，只用文字" },
         { role: "user", content: `請幫我回答：「${query}」` }
       ],
       temperature: 0.9,
@@ -226,7 +226,8 @@ async function genReply(userText, mode = 'chat') {
 
     let replyMessages = picked.map(s => ({ type: 'text', text: s }));
 if (searchResult) {
-  replyMessages.unshift({ type: "text", text: searchResult });
+  // 如果有搜尋結果，就直接用搜尋結果，不要再附加 picked
+  replyMessages = [{ type: "text", text: searchResult }];
 }
 return replyMessages;
   } catch (err) {
