@@ -104,7 +104,7 @@ async function searchPlace(query) {
 地圖：${mapUrl}`;
     }
 
-    return `咻咻找不到這個地點啦～ (status=${data.status || "unknown"})`;
+    return `咻咻找不到這個地點啦～ (status=${data.status || "unknown"}, error=${data.error_message || "none"})`;
 
   } catch (err) {
     console.error("❌ Google Maps API error:", err.message);
@@ -117,9 +117,9 @@ async function searchWeb(query) {
   try {
     if (query.includes("地址") || query.includes("在哪") || query.includes("在哪裡")) {
       const keyword = query
-        .replace("地址", "")
-        .replace("在哪裡", "")
-        .replace("在哪", "")
+        .replace(/地址/g, "")
+        .replace(/在哪裡/g, "")
+        .replace(/在哪/g, "")
         .trim();
       return await searchPlace(keyword);
     }
