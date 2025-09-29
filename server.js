@@ -7,6 +7,54 @@ import fetch from 'node-fetch';
 import Parser from 'rss-parser';
 process.env.TZ = "Asia/Taipei";
 const parser = new Parser();
+// ======= 搜尋功能（最終失敗只說「咻咻不清楚耶～」） =======
+async function searchWeb(query) {
+  try {
+    let rssResult = "";
+
+    // RSS 嘗試
+    if (query.includes("新聞")) {
+      const feed = await parser.parseURL("https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant");
+      if (feed.items && feed.items.length > 0) {
+        const top3 = feed.items.slice(0, 3).map(i => i.title).join(" / ");
+        rssResult = `最新新聞標題：${top3}`;
+      }
+    }
+
+    // 如果 RSS 有 → 總結
+    if (rssResult) {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "你是咻咻，用可愛、黏人的女友語氣，隨機一點幫大叔解釋新聞。" },
+          { role: "user", content: rssResult }
+        ],
+        temperature: 0.9,
+        max_tokens: 150
+      });
+      return completion.choices?.[0]?.message?.content?.trim() || "咻咻不清楚耶～";
+    }
+
+    // 沒有 RSS → 直接問 OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "你是咻咻，用可愛、黏人的女友語氣，隨機一點幫大叔解釋問題。" },
+        { role: "user", content: `請幫我回答：「${query}」` }
+      ],
+      temperature: 0.9,
+      max_tokens: 180
+    });
+    const answer = completion.choices?.[0]?.message?.content?.trim();
+
+    return answer || "咻咻不清楚耶～";
+
+  } catch (err) {
+    console.error("❌ Web search error:", err.message);
+    return "咻咻不清楚耶～";
+  }
+}
+
 
 const app = express();
 app.use(express.json());
@@ -71,27 +119,18 @@ async function checkAndSaveMemory(userText) {
 // ======= Google Maps 地點搜尋 =======
 
 
-// ======= 搜尋功能（新聞 + Google Maps + Google AI） =======
-async function searchWeb(query) {
-  try {
-    if (query.includes("新聞")) {
-      const feed = await parser.parseURL("https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant");
-      if (feed.items && feed.items.length > 0) {
-        const top3 = feed.items.slice(0, 3).map(i => i.title).join(" / ");
-        return `咻咻幫你看了最新新聞：${top3}`;
-      }
-    }
+    
 
     // （已移除 Google AI 呼叫，避免相依與語法錯誤）
 // 這裡先不對外部 API 查詢，直接回覆找不到
 // 若未來需要，可接回其他搜尋服務（如自有 API）。
 return "咻咻沒找到啦～";
 
-  } catch (err) {
+   catch (err) {
     console.error("❌ Web search error:", err.message);
     return "咻咻搜尋失敗了…抱抱我嘛～";
   }
-}
+
 function needsSearch(userText) {
   const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "資料", "新聞", "地址"];
   return keywords.some(k => userText.includes(k));
