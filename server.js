@@ -6,6 +6,11 @@ import fs from 'fs';
 import cron from 'node-cron';
 import fetch from 'node-fetch';
 import Parser from 'rss-parser';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+const googleModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+
 
 process.env.TZ = "Asia/Taipei";
 const parser = new Parser();
@@ -129,6 +134,16 @@ async function searchWeb(query) {
     if (data?.RelatedTopics?.length > 0) {
       return data.RelatedTopics[0].Text || "咻咻找不到耶～";
     }
+
+    // 如果 DuckDuckGo 沒找到 → 用 Google AI 試試
+    try {
+      const result = await googleModel.generateContent(query);
+      const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) return `咻咻問了Google AI：${text}`;
+    } catch(e) {
+      console.error("❌ Google AI error:", e.message);
+    }
+
     return "咻咻沒找到啦～";
   } catch (err) {
     console.error("❌ Web search error:", err.message);
