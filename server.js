@@ -26,7 +26,7 @@ async function searchWeb(query) {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣，簡短甜蜜地告訴大叔新聞內容。回覆20~50字，語氣要隨機變化，有時撒嬌、有時俏皮。。回覆20~50字，不要太長，也不要使用任何 emoji 或符號，只用文字" },
+          { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。請注意：1) 使用台灣常用口語，不要使用大陸用語。2) 每次回覆20~50字，分成1–3句，句型可隨機：陳述句、問句或動作描寫。3) 若有記憶，請自然融入，不要生硬。4) 偶爾加入一點猶豫或思考感，像真人在聊天。5) 絕對不要使用任何 emoji 或符號。" },
           { role: "user", content: rssResult }
         ],
         temperature: 0.9,
@@ -39,7 +39,7 @@ async function searchWeb(query) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。回覆20~50字，不要太長。語氣要隨機變化，有時撒嬌、有時俏皮。。回覆20~50字，不要太長，也不要使用任何 emoji 或符號，只用文字" },
+        { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。請注意：1) 使用台灣常用口語，不要使用大陸用語。2) 每次回覆20~50字，分成1–3句，句型可隨機：陳述句、問句或動作描寫。3) 若有記憶，請自然融入，不要生硬。4) 偶爾加入一點猶豫或思考感，像真人在聊天。5) 絕對不要使用任何 emoji 或符號。" },
         { role: "user", content: `請幫我回答：「${query}」` }
       ],
       temperature: 0.9,
