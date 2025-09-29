@@ -9,7 +9,7 @@ import Parser from 'rss-parser';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash", apiVersion: "v1" });
 
 
 process.env.TZ = "Asia/Taipei";
@@ -163,7 +163,12 @@ async function genReply(userText, mode = 'chat') {
 
   let searchResult = "";
   if (needsSearch(userText)) {
-    const keyword = userText.replace(/.*(查一下|找一下|是什麼|誰|在哪|資料|新聞|地址)/, "").trim() || userText;
+    const keyword = userText
+    .replace(/地址/g, "")
+    .replace(/在哪裡/g, "")
+    .replace(/在哪/g, "")
+    .replace(/查一下|找一下|是什麼|誰|資料|新聞/g, "")
+    .trim() || userText;
     const rawResult = await searchWeb(keyword);
     searchResult = `咻咻查到「${keyword}」：${rawResult}（可能不是最新資訊）`;
     console.log("🌐 Auto Search:", searchResult);
