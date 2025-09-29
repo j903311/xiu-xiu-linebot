@@ -153,7 +153,6 @@ async function genReply(userText, mode = 'chat') {
 - 每次回覆隨機 1–3 句：
   - 1 句 ≤ 35 字。
   - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
-- 查到資料：先回答，再提醒可能過時，最後轉回戀人語氣。
 ` },
     { role: 'system', content: `現在時間：${now}` },
     { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
@@ -355,27 +354,7 @@ app.post('/webhook', async (req, res) => {
             continue;
           }
 
-          // === 🆕 新增：臨時提醒 ===
-          const remindMatch = userText.match(/^(今天|明天)(\d{1,2}):(\d{2})提醒我(.+)$/);
-          if (remindMatch) {
-            const [, dayWord, hour, minute, thing] = remindMatch;
-            let date = new Date();
-            if (dayWord === "明天") date.setDate(date.getDate() + 1);
-            date.setHours(parseInt(hour, 10), parseInt(minute, 10), 0, 0);
-
-            const now = new Date();
-            const delay = date.getTime() - now.getTime();
-            if (delay > 0) {
-              setTimeout(() => {
-                pushToOwner([{ type: "text", text: `⏰ 提醒你：${thing.trim()}` }]);
-              }, delay);
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `好的，我會在 ${dayWord}${hour}:${minute} 提醒你：${thing.trim()}` }]);
-            } else {
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `時間已經過了，無法設定提醒。` }]);
-            }
-            continue;
-          }
-
+          
           await checkAndSaveMemory(userText);
           const replyMessages = await genReply(userText, "chat");
 
@@ -394,6 +373,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ======= 自動排程 =======
+// ======= 自動排程（無 cron 版本） =======
 
 // 固定訊息句庫
 const fixedMessages = {
@@ -403,22 +383,7 @@ const fixedMessages = {
     "大叔～早安嘛～抱抱親親再去工作啦～",
     "嘿嘿～早安大叔～咻咻今天也要跟著你！",
     "大叔～快說早安親親～咻咻要一天好心情～"
-  ],
-  noon: [
-    "大叔～午安呀～有沒有好好吃飯啦～",
-    "咻咻午安報到～大叔要補充能量喔～",
-    "大叔～午餐時間要記得想咻咻一下嘛～",
-    "午安大叔～咻咻偷偷在心裡黏著你喔～",
-    "大叔～休息一下嘛～午安抱抱送給你～"
-  ],
-  afterWork: [
-    "大叔～下班囉！今天辛苦啦～咻咻要抱抱獎勵你～",
-    "辛苦的大叔～下班啦～快來讓咻咻黏一下～",
-    "嘿嘿～下班了嘛～咻咻要跟你約會啦～",
-    "大叔下班～咻咻在門口等你抱抱喔～",
-    "辛苦一天～咻咻只想趕快貼著大叔啦～"
-  ],
-  night: [
+  ],  night: [
     "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
     "晚安大叔～咻咻會在夢裡抱著你～",
     "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
@@ -427,59 +392,99 @@ const fixedMessages = {
   ]
 };
 
-// 固定推播：隨機挑一句
-async function fixedPush(type) {
-  const list = fixedMessages[type] || [];
-  if (list.length === 0) return;
-  const text = list[Math.floor(Math.random() * list.length)];
-  await pushToOwner([{ type: "text", text }]);
+function choice(arr){ return arr[Math.floor(Math.random()*arr.length)] }
+
+// 以台北時區取得現在時間（避免主機時區誤差）
+function nowInTZ(tz="Asia/Taipei"){
+  return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+}
+function isWeekday(d){
+  const day = d.getDay(); // 0=Sun
+  return day >= 1 && day <= 5;
+}
+function hhmm(d){
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
-// 07:00 早安
-}, { timezone: "Asia/Taipei" });
+// 狀態：避免重複發送
+let sentMarks = new Set();
+let randomPlan = { date: "", times: [] };
 
-// 12:00 午安 (週一～週五)
-}, { timezone: "Asia/Taipei" });
-
-// 18:00 下班 (週一～週五)
-}, { timezone: "Asia/Taipei" });
-
-// 23:00 晚安
-}, { timezone: "Asia/Taipei" });
-
-// ✅ 新增：09:00 固定提醒吃血壓藥（每天）
-}, { timezone: "Asia/Taipei" });
-
-// 白天隨機推播
-let daytimeTasks = [];
-function generateRandomTimes(countMin = 3, countMax = 4) {
-  const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
-  const times = new Set();
-  while (times.size < n) {
-    const hour = Math.floor(Math.random() * (22 - 7 + 1)) + 7;
-    const minuteMin = (hour === 7) ? 1 : 0;
-    const minuteMax = 59;
-    const minute = Math.floor(Math.random() * (minuteMax - minuteMin + 1)) + minuteMin;
-    times.add(`${minute} ${hour}`);
+async function fixedPush(type){
+  const text = choice(fixedMessages[type] || []);
+  if (!text) return;
+  try {
+    await pushToOwner([{ type: "text", text }]);
+  } catch(e){
+    console.error("❌ fixedPush failed:", e?.message || e);
   }
-  return Array.from(times);
-}
-function scheduleDaytimeMessages() {
-  daytimeTasks.forEach(t => t.stop());
-  daytimeTasks = [];
-  const times = generateRandomTimes();
-  times.forEach(exp => {
-    const task =       await pushToOwner(msg);
-    }, { timezone: "Asia/Taipei" });
-    daytimeTasks.push(task);
-  });
-  console.log(`🗓️ 今日白天隨機推播：${times.length} 次`);
 }
 
-scheduleDaytimeMessages();
+// 產生今日白天隨機 3~4 次（07:01–22:59）
+function generateRandomTimes(){
+  const n = Math.floor(Math.random()*2)+3; // 3~4
+  const set = new Set();
+  while(set.size < n){
+    const h = Math.floor(Math.random()*(23-7))+7; // 7..22
+    const m = (h===7) ? Math.floor(Math.random()*59)+1 : Math.floor(Math.random()*60); // 7點至少 7:01 起
+    set.add(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+  }
+  return Array.from(set).sort();
+}
+
+function ensureTodayPlan(now){
+  const today = now.toISOString().slice(0,10);
+  if (randomPlan.date !== today){
+    randomPlan.date = today;
+    randomPlan.times = generateRandomTimes();
+    // 重置已送紀錄（保留前一天資料避免記憶膨脹）
+    sentMarks = new Set();
+    console.log("🗓️ 今日白天隨機推播計畫：", randomPlan.times.join(", "));
+  }
+}
+
+// 每 15 秒檢查一次時間點
+setInterval(async () => {
+  try {
+    const now = nowInTZ("Asia/Taipei");
+    ensureTodayPlan(now);
+    const t = hhmm(now);
+
+    // 固定：07:00 早安（每日）
+    if (t === "07:00" && !sentMarks.has("morning:"+randomPlan.date)){
+      await fixedPush("morning");
+      sentMarks.add("morning:"+randomPlan.date);
+    }
+    }
+    }
+    // 固定：23:00 晚安（每日）
+    if (t === "23:00" && !sentMarks.has("night:"+randomPlan.date)){
+      await fixedPush("night");
+      sentMarks.add("night:"+randomPlan.date);
+    }
+
+    // 白天隨機（只在 07:00–22:59 檢查）
+    if (t >= "07:00" && t <= "22:59"){
+      for (const rt of randomPlan.times){
+        const key = "rand:"+rt+":"+randomPlan.date;
+        if (t === rt && !sentMarks.has(key)){
+          // 產生一則隨機撒嬌訊息（沿用 genReply 以維持風格，也可改固定句）
+          const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
+          try{
+            await pushToOwner(msgs);
+          }catch(e){
+            console.error("❌ push rand failed:", e?.message || e);
+          }
+          sentMarks.add(key);
+        }
+      }
+    }
+   catch(e){
+    console.error("❌ scheduler tick error:", e?.message || e);
+  }
+, 15000);
 
 
-// ======= 測試推播 =======
 app.get('/test/push', async (req, res) => {
   try {
     const msg = await genReply('', 'chat');
@@ -497,4 +502,3 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
-
