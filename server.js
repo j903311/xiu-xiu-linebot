@@ -9,7 +9,7 @@ import Parser from 'rss-parser';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-const googleModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 
 process.env.TZ = "Asia/Taipei";
@@ -104,7 +104,7 @@ async function searchPlace(query) {
 地圖：${mapUrl}`;
     }
 
-    return "咻咻找不到這個地點啦～";
+    return `咻咻找不到這個地點啦～ (status=${data.status || "unknown"}, error=${data.error_message || "none"})`;
 
   } catch (err) {
     console.error("❌ Google Maps API error:", err.message);
@@ -112,11 +112,15 @@ async function searchPlace(query) {
   }
 }
 
-// ======= 搜尋功能（新聞 + DuckDuckGo + Google Maps） =======
+// ======= 搜尋功能（新聞 + Google Maps + Google AI） =======
 async function searchWeb(query) {
   try {
     if (query.includes("地址") || query.includes("在哪") || query.includes("在哪裡")) {
-      const keyword = query.replace("地址", "").replace("在哪裡", "").replace("在哪", "").trim();
+      const keyword = query
+        .replace(/地址/g, "")
+        .replace(/在哪裡/g, "")
+        .replace(/在哪/g, "")
+        .trim();
       return await searchPlace(keyword);
     }
 
@@ -128,14 +132,7 @@ async function searchWeb(query) {
       }
     }
 
-    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data?.RelatedTopics?.length > 0) {
-      return data.RelatedTopics[0].Text || "咻咻找不到耶～";
-    }
-
-    // 如果 DuckDuckGo 沒找到 → 用 Google AI 試試
+    // 直接用 Google AI 回答
     try {
       const result = await googleModel.generateContent(query);
       const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -148,6 +145,8 @@ async function searchWeb(query) {
   } catch (err) {
     console.error("❌ Web search error:", err.message);
     return "咻咻搜尋失敗了…抱抱我嘛～";
+  }
+}
   }
 }
 function needsSearch(userText) {
