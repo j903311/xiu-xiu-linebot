@@ -9,7 +9,7 @@ import Parser from 'rss-parser';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-const googleModel = genAI.getGenerativeModel({ model: "gemini-pro" });
+const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 
 process.env.TZ = "Asia/Taipei";
@@ -104,7 +104,7 @@ async function searchPlace(query) {
 地圖：${mapUrl}`;
     }
 
-    return "咻咻找不到這個地點啦～";
+    return `咻咻找不到這個地點啦～ (status=${data.status || "unknown"})`;
 
   } catch (err) {
     console.error("❌ Google Maps API error:", err.message);
