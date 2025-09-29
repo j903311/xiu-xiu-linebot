@@ -161,11 +161,11 @@ async function checkAndSaveMemory(userText) {
     // （已移除 Google AI 呼叫，避免相依與語法錯誤）
 // 這裡先不對外部 API 查詢，直接回覆找不到
 // 若未來需要，可接回其他搜尋服務（如自有 API）。
-return "咻咻沒找到啦～";
+return "咻咻不清楚耶～";
 
    catch (err) {
     console.error("❌ Web search error:", err.message);
-    return "咻咻搜尋失敗了…抱抱我嘛～";
+    return "咻咻不清楚耶～";
   }
 
 function needsSearch(userText) {
@@ -191,7 +191,7 @@ async function genReply(userText, mode = 'chat') {
     .replace(/查一下|找一下|是什麼|誰|資料|新聞/g, "")
     .trim() || userText;
     const rawResult = await searchWeb(keyword);
-    searchResult = `咻咻查到「${keyword}」：${rawResult}（可能不是最新資訊）`;
+    searchResult = rawResult;
     console.log("🌐 Auto Search:", searchResult);
   }
 
