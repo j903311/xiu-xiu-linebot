@@ -8,7 +8,10 @@ import fetch from 'node-fetch';
 import Parser from 'rss-parser';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+const genAI = new GoogleGenerativeAI({
+  apiKey: process.env.GOOGLE_AI_API_KEY,
+  apiEndpoint: "https://generativelanguage.googleapis.com/v1"
+});
 const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 
