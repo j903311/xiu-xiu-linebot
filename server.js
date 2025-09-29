@@ -121,17 +121,7 @@ async function checkAndSaveMemory(userText) {
 
     
 
-    // （已移除 Google AI 呼叫，避免相依與語法錯誤）
-// 這裡先不對外部 API 查詢，直接回覆找不到
-// 若未來需要，可接回其他搜尋服務（如自有 API）。
-return "咻咻沒找到啦～";
-
-   catch (err) {
-    console.error("❌ Web search error:", err.message);
-    return "咻咻搜尋失敗了…抱抱我嘛～";
-  }
-
-function needsSearch(userText) {
+    function needsSearch(userText) {
   const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "資料", "新聞", "地址"];
   return keywords.some(k => userText.includes(k));
 }
