@@ -500,7 +500,7 @@ cron.schedule("0 9 * * *", async () => {
 
 // 白天隨機推播
 let daytimeTasks = [];
-function generateRandomTimes(countMin = 10, countMax = 20) {
+function generateRandomTimes(countMin = 3, countMax = 4) {
   const n = Math.floor(Math.random() * (countMax - countMin + 1)) + countMin;
   const times = new Set();
   while (times.size < n) {
