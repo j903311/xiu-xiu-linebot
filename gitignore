@@ -1,29 +1,23 @@
-# Node.js dependencies
+# Node.js
 node_modules/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
-pnpm-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Env files
+# 環境變數（只留 .env.sample 給範例用）
 .env
-.env.local
-.env.*.local
+*.env
 
-# Logs
-logs
-*.log
-*.log.*
-
-# Build outputs
-dist/
-build/
-
-# OS files
+# 系統暫存
 .DS_Store
 Thumbs.db
 
-# IDE / Editor
-.vscode/
-.idea/
-*.swp
+# 編譯或快取
+dist/
+.cache/
+.tmp/
+
+# Railway / Docker 產生的暫存
+railway.json
+railway_v2.json
+bash
