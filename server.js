@@ -6,37 +6,6 @@ import fs from 'fs';
 import cron from 'node-cron';
 import fetch from 'node-fetch';
 import Parser from 'rss-parser';
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const genAI = new GoogleGenerativeAI({
-  apiKey: process.env.GOOGLE_AI_API_KEY,
-  baseUrl: "https://generativelanguage.googleapis.com/v1"
-});
-const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-
-// ======= 檢查 SDK 版本與測試呼叫 =======
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-
-try {
-  const gg = require('@google/generative-ai/package.json');
-  console.log('📦 @google/generative-ai version =', gg.version);
-} catch (e) {
-  console.log('⚠️ 無法讀取 SDK 版本:', e.message);
-}
-
-(async () => {
-  try {
-    const testResult = await googleModel.generateContent("Hello from Railway!");
-    console.log("✅ 測試回應:", testResult.response.text());
-  } catch (err) {
-    console.error("❌ 測試錯誤:", err.message);
-  }
-})();
-
-
-
 process.env.TZ = "Asia/Taipei";
 const parser = new Parser();
 
@@ -116,8 +85,7 @@ async function searchWeb(query) {
 
     // 一律用 Google AI 查詢
     try {
-      const result = await googleModel.generateContent(query);
-      const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const result = const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (text) return `咻咻問了Google AI：${text}`;
     } catch(e) {
       console.error("❌ Google AI error:", e.message);

@@ -7,7 +7,6 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@google/generative-ai": "latest",
     "@line/bot-sdk": "^7.5.2",
     "cron": "^2.3.0",
     "dotenv": "^16.0.3",
