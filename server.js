@@ -147,8 +147,6 @@ async function searchWeb(query) {
     return "咻咻搜尋失敗了…抱抱我嘛～";
   }
 }
-  }
-}
 function needsSearch(userText) {
   const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "資料", "新聞", "地址"];
   return keywords.some(k => userText.includes(k));
