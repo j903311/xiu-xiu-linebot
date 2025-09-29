@@ -10,7 +10,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI({
   apiKey: process.env.GOOGLE_AI_API_KEY,
-  apiEndpoint: "https://generativelanguage.googleapis.com/v1"
+  baseUrl: "https://generativelanguage.googleapis.com/v1"
 });
 const googleModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
