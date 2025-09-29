@@ -71,15 +71,51 @@ async function checkAndSaveMemory(userText) {
 // ======= Google Maps 地點搜尋 =======
 
 
-// ======= 搜尋功能（新聞 + Google Maps + Google AI） =======
+// ======= 搜尋功能（RSS + OpenAI 總結，Fallback 用 OpenAI） =======
 async function searchWeb(query) {
   try {
+    let rssResult = "";
+
+    // 如果是新聞關鍵字 → 先抓 RSS
     if (query.includes("新聞")) {
       const feed = await parser.parseURL("https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant");
       if (feed.items && feed.items.length > 0) {
         const top3 = feed.items.slice(0, 3).map(i => i.title).join(" / ");
-        return `咻咻幫你看了最新新聞：${top3}`;
+        rssResult = `最新新聞標題：${top3}`;
       }
+    }
+
+    // 如果有 RSS → 用 OpenAI 總結
+    if (rssResult) {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣，用中文簡短轉述新聞給大叔聽。" },
+          { role: "user", content: rssResult }
+        ],
+        temperature: 0.7,
+        max_tokens: 150
+      });
+      return completion.choices?.[0]?.message?.content?.trim() || `咻咻看了新聞，可是好難說～`;
+    }
+
+    // 如果 RSS 沒結果 → fallback 用 OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣，用中文簡短回答大叔的問題。" },
+        { role: "user", content: `請幫我回答：「${query}」` }
+      ],
+      temperature: 0.7,
+      max_tokens: 180
+    });
+    return completion.choices?.[0]?.message?.content?.trim() || "咻咻不知道耶～";
+
+  } catch (err) {
+    console.error("❌ Web search error:", err.message);
+    return "咻咻搜尋失敗了…抱抱我嘛～";
+  }
+}
     }
 
     // （已移除 Google AI 呼叫，避免相依與語法錯誤）
