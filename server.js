@@ -58,35 +58,7 @@ async function searchWeb(query) {
 
     
 
-    // 如果 RSS 有 → 總結
-    if (rssResult) {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "你是咻咻，用可愛、黏人的女友語氣，隨機一點幫大叔解釋新聞。" },
-          { role: "user", content: rssResult }
-        ],
-        temperature: 0.9,
-        max_tokens: 150
-      });
-      return completion.choices?.[0]?.message?.content?.trim() || "咻咻不清楚耶～";
-    }
-
-    // 沒有 RSS → 直接問 OpenAI
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "你是咻咻，用可愛、黏人的女友語氣，隨機一點幫大叔解釋問題。" },
-        { role: "user", content: `請幫我回答：「${query}」` }
-      ],
-      temperature: 0.9,
-      max_tokens: 180
-    });
-    const answer = completion.choices?.[0]?.message?.content?.trim();
-
-    return answer || "咻咻不清楚耶～";
-  
-const app = express();
+    const app = express();
 app.use(express.json());
 
 const lineClient = new LineClient({
