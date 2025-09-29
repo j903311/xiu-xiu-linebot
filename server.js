@@ -3,7 +3,6 @@ import express from 'express';
 import { Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
 import fs from 'fs';
-import cron from 'node-cron';
 import fetch from 'node-fetch';
 import Parser from 'rss-parser';
 process.env.TZ = "Asia/Taipei";
@@ -83,15 +82,11 @@ async function searchWeb(query) {
       }
     }
 
-    // 一律用 Google AI 查詢
-    try {
-      const result = const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) return `咻咻問了Google AI：${text}`;
-    } catch(e) {
-      console.error("❌ Google AI error:", e.message);
-    }
+    // （已移除 Google AI 呼叫，避免相依與語法錯誤）
+// 這裡先不對外部 API 查詢，直接回覆找不到
+// 若未來需要，可接回其他搜尋服務（如自有 API）。
+return "咻咻沒找到啦～";
 
-    return "咻咻沒找到啦～";
   } catch (err) {
     console.error("❌ Web search error:", err.message);
     return "咻咻搜尋失敗了…抱抱我嘛～";
@@ -441,28 +436,18 @@ async function fixedPush(type) {
 }
 
 // 07:00 早安
-cron.schedule("0 7 * * *", async () => {
-  await fixedPush("morning");
 }, { timezone: "Asia/Taipei" });
 
 // 12:00 午安 (週一～週五)
-cron.schedule("0 12 * * 1-5", async () => {
-  await fixedPush("noon");
 }, { timezone: "Asia/Taipei" });
 
 // 18:00 下班 (週一～週五)
-cron.schedule("0 18 * * 1-5", async () => {
-  await fixedPush("afterWork");
 }, { timezone: "Asia/Taipei" });
 
 // 23:00 晚安
-cron.schedule("0 23 * * *", async () => {
-  await fixedPush("night");
 }, { timezone: "Asia/Taipei" });
 
 // ✅ 新增：09:00 固定提醒吃血壓藥（每天）
-cron.schedule("0 9 * * *", async () => {
-  await pushToOwner([{ type: "text", text: "大叔～該吃血壓藥囉～咻咻要乖乖盯著你！" }]);
 }, { timezone: "Asia/Taipei" });
 
 // 白天隨機推播
@@ -484,19 +469,15 @@ function scheduleDaytimeMessages() {
   daytimeTasks = [];
   const times = generateRandomTimes();
   times.forEach(exp => {
-    const task = cron.schedule(`${exp} * * *`, async () => {
-      const msg = await genReply('', 'random');
-      await pushToOwner(msg);
+    const task =       await pushToOwner(msg);
     }, { timezone: "Asia/Taipei" });
     daytimeTasks.push(task);
   });
   console.log(`🗓️ 今日白天隨機推播：${times.length} 次`);
 }
 
-cron.schedule("0 9 * * *", scheduleDaytimeMessages, { timezone: "Asia/Taipei" });
 scheduleDaytimeMessages();
 
-cron.schedule("0 3 * * *", clearHistory, { timezone: "Asia/Taipei" });
 
 // ======= 測試推播 =======
 app.get('/test/push', async (req, res) => {
