@@ -1,0 +1,9 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "rm -f package-lock.json && npm install --force"
+  },
+  "deploy": {
+    "startCommand": "npm run start"
+  }
+}
