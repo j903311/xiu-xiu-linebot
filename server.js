@@ -372,8 +372,9 @@ app.post('/webhook', async (req, res) => {
   res.status(200).send("OK");
 });
 
-// ======= 自動排程 =======
-// ======= 自動排程（無 cron 版本） =======
+// ======= 自動排程（已重寫） =======
+
+// ======= 自動排程（已重寫，無 cron） =======
 
 // 固定訊息句庫
 const fixedMessages = {
@@ -383,7 +384,8 @@ const fixedMessages = {
     "大叔～早安嘛～抱抱親親再去工作啦～",
     "嘿嘿～早安大叔～咻咻今天也要跟著你！",
     "大叔～快說早安親親～咻咻要一天好心情～"
-  ],  night: [
+  ],
+  night: [
     "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
     "晚安大叔～咻咻會在夢裡抱著你～",
     "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
@@ -394,13 +396,9 @@ const fixedMessages = {
 
 function choice(arr){ return arr[Math.floor(Math.random()*arr.length)] }
 
-// 以台北時區取得現在時間（避免主機時區誤差）
+// 以台北時區取得現在時間
 function nowInTZ(tz="Asia/Taipei"){
   return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-}
-function isWeekday(d){
-  const day = d.getDay(); // 0=Sun
-  return day >= 1 && day <= 5;
 }
 function hhmm(d){
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -426,7 +424,7 @@ function generateRandomTimes(){
   const set = new Set();
   while(set.size < n){
     const h = Math.floor(Math.random()*(23-7))+7; // 7..22
-    const m = (h===7) ? Math.floor(Math.random()*59)+1 : Math.floor(Math.random()*60); // 7點至少 7:01 起
+    const m = (h===7) ? Math.floor(Math.random()*59)+1 : Math.floor(Math.random()*60);
     set.add(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
   }
   return Array.from(set).sort();
@@ -437,38 +435,34 @@ function ensureTodayPlan(now){
   if (randomPlan.date !== today){
     randomPlan.date = today;
     randomPlan.times = generateRandomTimes();
-    // 重置已送紀錄（保留前一天資料避免記憶膨脹）
     sentMarks = new Set();
     console.log("🗓️ 今日白天隨機推播計畫：", randomPlan.times.join(", "));
   }
 }
 
-// 每 15 秒檢查一次時間點
+// 每 15 秒檢查一次
 setInterval(async () => {
   try {
     const now = nowInTZ("Asia/Taipei");
     ensureTodayPlan(now);
     const t = hhmm(now);
 
-    // 固定：07:00 早安（每日）
+    // 固定：07:00 早安
     if (t === "07:00" && !sentMarks.has("morning:"+randomPlan.date)){
       await fixedPush("morning");
       sentMarks.add("morning:"+randomPlan.date);
     }
-    }
-    }
-    // 固定：23:00 晚安（每日）
+    // 固定：23:00 晚安
     if (t === "23:00" && !sentMarks.has("night:"+randomPlan.date)){
       await fixedPush("night");
       sentMarks.add("night:"+randomPlan.date);
     }
 
-    // 白天隨機（只在 07:00–22:59 檢查）
+    // 白天隨機
     if (t >= "07:00" && t <= "22:59"){
       for (const rt of randomPlan.times){
         const key = "rand:"+rt+":"+randomPlan.date;
         if (t === rt && !sentMarks.has(key)){
-          // 產生一則隨機撒嬌訊息（沿用 genReply 以維持風格，也可改固定句）
           const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
           try{
             await pushToOwner(msgs);
@@ -479,10 +473,10 @@ setInterval(async () => {
         }
       }
     }
-   catch(e){
+  } catch(e){
     console.error("❌ scheduler tick error:", e?.message || e);
   }
-, 15000);
+}, 15000);
 
 
 app.get('/test/push', async (req, res) => {
