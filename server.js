@@ -115,8 +115,8 @@ async function searchPlace(query) {
 // ======= 搜尋功能（新聞 + DuckDuckGo + Google Maps） =======
 async function searchWeb(query) {
   try {
-    if (query.includes("地址") || query.includes("在哪")) {
-      const keyword = query.replace("地址", "").replace("在哪", "").trim();
+    if (query.includes("地址") || query.includes("在哪") || query.includes("在哪裡")) {
+      const keyword = query.replace("地址", "").replace("在哪裡", "").replace("在哪", "").trim();
       return await searchPlace(keyword);
     }
 
