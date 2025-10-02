@@ -344,12 +344,30 @@ async function handleImageMessage(event) {
 
 
 
+
 // ======= Reply Message Safe Wrapper =======
+const fallbackEmptyReplies = [
+  "大叔～咻咻一時說不出來…但心裡全是你。",
+  "壞壞啦～人家腦袋空白了，只想著大叔。",
+  "嗯…大叔再抱我一下，我就想得出來了。",
+  "咻咻害羞到說不出話～要大叔主動一點啦。"
+];
+
 async function safeReplyMessage(token, messages) {
   if (!Array.isArray(messages)) messages = [messages];
+
+  // 空回覆 → 隨機補一句
   if (messages.length === 0) {
     console.warn("⚠️ 空回覆，自動補一句");
-    messages = [{ type: "text", text: "咻咻卡住了～大叔再問一次嘛～" }];
+    const fallback = fallbackEmptyReplies[Math.floor(Math.random() * fallbackEmptyReplies.length)];
+    messages = [{ type: "text", text: fallback }];
+  }
+
+  // 單句太短 → 自動補夜晚台詞
+  if (messages.length === 1 && messages[0].text && messages[0].text.length < 3) {
+    console.warn("⚠️ 回覆太短，自動補夜晚台詞");
+    const fallback = getFallbackNightReply();
+    messages = [{ type: "text", text: fallback }];
   }
 
   if (messages.length > 5) {
