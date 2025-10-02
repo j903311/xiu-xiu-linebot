@@ -232,7 +232,7 @@ if (searchResult) {
 return replyMessages;
   } catch (err) {
     console.error("❌ OpenAI error:", err);
-    return [{ type: 'text', text: "大叔～咻咻卡住了，抱抱我嘛～" }];
+    return [{ type: 'text', text: getFallbackNightReply(userText) }];
   }
 }
 
