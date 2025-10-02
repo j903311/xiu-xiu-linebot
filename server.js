@@ -343,15 +343,39 @@ async function handleImageMessage(event) {
 }
 
 
+
+
 // ======= Reply Message Safe Wrapper =======
 async function safeReplyMessage(token, messages) {
   if (!Array.isArray(messages)) messages = [messages];
   if (messages.length === 0) {
+    console.warn("⚠️ 空回覆，自動補一句");
     messages = [{ type: "text", text: "咻咻卡住了～大叔再問一次嘛～" }];
   }
+
   if (messages.length > 5) {
-    messages = messages.slice(0, 5);
+    console.warn(`⚠️ 超過 5 則，已截斷：原本 ${messages.length} 條`);
+    const firstBatch = messages.slice(0, 5);
+    const remaining = messages.slice(5);
+    console.log("📏 Reply first batch length:", firstBatch.length, firstBatch);
+    try {
+      await lineClient.replyMessage(token, firstBatch);
+    } catch (err) {
+      console.error("❌ Safe Reply failed:", err.originalError?.response?.data || err.message);
+    }
+    // 補送剩下的訊息 (分批推播)
+    if (remaining.length > 0) {
+      console.log("📤 Push remaining messages:", remaining.length, remaining);
+      try {
+        await lineClient.pushMessage(ownerUserId, remaining);
+      } catch (err) {
+        console.error("❌ Push remaining failed:", err.originalError?.response?.data || err.message);
+      }
+    }
+    return;
   }
+
+  console.log("📏 Reply messages length:", messages.length, messages);
   try {
     await lineClient.replyMessage(token, messages);
   } catch (err) {
