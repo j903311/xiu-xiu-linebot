@@ -345,11 +345,12 @@ async function handleImageMessage(event) {
 
 
 // ======= Reply Message Safe Wrapper =======
-async function safeReplyMessage(token, messages) {
+
+async function safeReplyMessage(token, messages, userText = "") {
   if (!Array.isArray(messages)) messages = [messages];
   if (messages.length === 0) {
     console.warn("⚠️ 空回覆，自動補一句");
-    messages = [{ type: "text", text: "咻咻卡住了～大叔再問一次嘛～" }];
+    messages = [{ type: "text", text: getFallbackNightReply(userText) }];
   }
 
   if (messages.length > 5) {
@@ -387,6 +388,7 @@ async function safeReplyMessage(token, messages) {
     console.error("❌ Safe Reply failed:", err.originalError?.response?.data || err.message);
   }
 }
+
 
 // ======= LINE 推播 =======
 async function pushToOwner(messages) {
@@ -437,7 +439,7 @@ app.post('/webhook', async (req, res) => {
           const replyMessages = await genReply(userText, "chat");
 
           try {
-            await safeReplyMessage(ev.replyToken, replyMessages);
+            await safeReplyMessage(ev.replyToken, replyMessages, userText);
           } catch (err) {
             console.error("❌ Reply failed:", err.originalError?.response?.data || err.message);
           }
