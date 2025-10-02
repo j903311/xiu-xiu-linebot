@@ -344,7 +344,6 @@ async function handleImageMessage(event) {
 
 
 
-
 // ======= Reply Message Safe Wrapper =======
 async function safeReplyMessage(token, messages) {
   if (!Array.isArray(messages)) messages = [messages];
@@ -354,7 +353,7 @@ async function safeReplyMessage(token, messages) {
   }
 
   if (messages.length > 5) {
-    console.warn(`⚠️ 超過 5 則，已截斷：原本 ${messages.length} 條`);
+    console.warn(`⚠️ 超過 5 則，將分批補送：原本 ${messages.length} 條`);
     const firstBatch = messages.slice(0, 5);
     const remaining = messages.slice(5);
     console.log("📏 Reply first batch length:", firstBatch.length, firstBatch);
@@ -366,10 +365,17 @@ async function safeReplyMessage(token, messages) {
     // 補送剩下的訊息 (分批推播)
     if (remaining.length > 0) {
       console.log("📤 Push remaining messages:", remaining.length, remaining);
-      try {
-        await lineClient.pushMessage(ownerUserId, remaining);
-      } catch (err) {
-        console.error("❌ Push remaining failed:", err.originalError?.response?.data || err.message);
+      const chunks = [];
+      for (let i = 0; i < remaining.length; i += 5) {
+        chunks.push(remaining.slice(i, i + 5));
+      }
+      for (const chunk of chunks) {
+        try {
+          await lineClient.pushMessage(ownerUserId, chunk);
+          console.log("✅ Pushed extra chunk:", chunk);
+        } catch (err) {
+          console.error("❌ Push remaining failed:", err.originalError?.response?.data || err.message);
+        }
       }
     }
     return;
