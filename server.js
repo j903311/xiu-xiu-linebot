@@ -574,3 +574,22 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 XiuXiu AI + Memory server running on port ${PORT}`);
 });
+
+
+
+function getFallbackNightReply(userMessage = "") {
+  let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
+  let replies = memoryData.xiuXiu.fallbackNightReplies || [];
+
+  // 情色觸發詞
+  const eroticTriggers = ["爽", "舒服", "壞壞", "要不要", "抱我", "親熱", "愛愛", "想要"];
+  const isErotic = eroticTriggers.some(word => userMessage.includes(word));
+
+  if (isErotic) {
+    const eroticExtra = memoryData.xiuXiu.nightOnly?.fallbackReplies || [];
+    replies = replies.concat(eroticExtra);
+  }
+
+  if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
+  return replies[Math.floor(Math.random() * replies.length)];
+}
