@@ -362,7 +362,6 @@ async function safeReplyMessage(token, messages) {
     } catch (err) {
       console.error("❌ Safe Reply failed:", err.originalError?.response?.data || err.message);
     }
-    // 補送剩下的訊息 (分批推播)
     if (remaining.length > 0) {
       console.log("📤 Push remaining messages:", remaining.length, remaining);
       const chunks = [];
