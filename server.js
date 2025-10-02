@@ -332,13 +332,30 @@ async function handleImageMessage(event) {
     ];
     const replyText = photoTemplates[Math.floor(Math.random() * photoTemplates.length)];
 
-    await lineClient.replyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+    await safeReplyMessage(event.replyToken, [{ type: "text", text: replyText }]);
 
   } catch (err) {
     console.error("❌ handleImageMessage error:", err);
-    await lineClient.replyMessage(event.replyToken, [
+    await safeReplyMessage(event.replyToken, [
       { type: "text", text: "大叔～咻咻真的看不清楚這張照片啦～再給我一次嘛～" }
     ]);
+  }
+}
+
+
+// ======= Reply Message Safe Wrapper =======
+async function safeReplyMessage(token, messages) {
+  if (!Array.isArray(messages)) messages = [messages];
+  if (messages.length === 0) {
+    messages = [{ type: "text", text: "咻咻卡住了～大叔再問一次嘛～" }];
+  }
+  if (messages.length > 5) {
+    messages = messages.slice(0, 5);
+  }
+  try {
+    await lineClient.replyMessage(token, messages);
+  } catch (err) {
+    console.error("❌ Safe Reply failed:", err.originalError?.response?.data || err.message);
   }
 }
 
@@ -364,7 +381,7 @@ app.post('/webhook', async (req, res) => {
             let reply = logs.length > 0
               ? logs.map((m, i) => `${i+1}. ${m.text}`).join("\n")
               : "大叔～咻咻還沒有特別的長期記憶啦～";
-            await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: reply }]);
+            await safeReplyMessage(ev.replyToken, [{ type: "text", text: reply }]);
             continue;
           }
 
@@ -379,9 +396,9 @@ app.post('/webhook', async (req, res) => {
               logs.splice(idx, 1);
               memory.logs = logs;
               saveMemory(memory);
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `已刪除記憶：「${item}」` }]);
+              await safeReplyMessage(ev.replyToken, [{ type: "text", text: `已刪除記憶：「${item}」` }]);
             } else {
-              await lineClient.replyMessage(ev.replyToken, [{ type: "text", text: `找不到記憶：「${item}」` }]);
+              await safeReplyMessage(ev.replyToken, [{ type: "text", text: `找不到記憶：「${item}」` }]);
             }
             continue;
           }
@@ -391,7 +408,7 @@ app.post('/webhook', async (req, res) => {
           const replyMessages = await genReply(userText, "chat");
 
           try {
-            await lineClient.replyMessage(ev.replyToken, replyMessages);
+            await safeReplyMessage(ev.replyToken, replyMessages);
           } catch (err) {
             console.error("❌ Reply failed:", err.originalError?.response?.data || err.message);
           }
