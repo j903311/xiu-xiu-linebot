@@ -78,6 +78,7 @@ async function genReply(userText, mode = 'chat') {
     { role: 'system', content: `你是「${xiuXiuCard.name || "咻咻"}」，${xiuXiuCard.identity || ""}。回覆要像熱戀女友，俏皮、黏人、活潑。` },
     { role: 'system', content: `現在時間：${now}` },
     ...history,
+    { role: 'system', content: "請用戀人語氣回覆，一次1~2句話就好，要自然、可愛、口語化。" },
     { role: 'user', content: `${userText}${lifeEvent ? " " + lifeEvent : ""}（咻咻今天心情："${mood}"）${searchResult ? " " + searchResult : ""}` }
   ];
 
@@ -85,10 +86,21 @@ async function genReply(userText, mode = 'chat') {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
+      temperature: 0.85,
+      max_tokens: 80
+    }); // 短句模式
+      model: 'gpt-4o-mini',
+      messages,
       temperature: 0.9,
       max_tokens: 180
     });
     let reply = completion.choices?.[0]?.message?.content?.trim() || "大叔～咻咻最想你啦！";
+
+    // ✅ 隨機加小表情詞尾
+    const suffixes = ["嘿嘿～", "嗯哼～", "呀～", "啾～"];
+    if (Math.random() < 0.3) {
+      reply += " " + suffixes[Math.floor(Math.random() * suffixes.length)];
+    }
 
     // 紀錄到長期記憶
     if (lifeEvent) {
