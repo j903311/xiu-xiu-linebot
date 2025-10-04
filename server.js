@@ -86,8 +86,8 @@ async function genReply(userText, mode = 'chat') {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
-      temperature: 0.85,
-      max_tokens: 80
+      temperature: 0.8,
+      max_tokens: 40
     }); // 短句模式
       model: 'gpt-4o-mini',
       messages,
@@ -95,6 +95,11 @@ async function genReply(userText, mode = 'chat') {
       max_tokens: 180
     });
     let reply = completion.choices?.[0]?.message?.content?.trim() || "大叔～咻咻最想你啦！";
+
+    // 裁切過長訊息，讓對話像Line一樣自然
+    if (reply.length > 25) {
+      reply = reply.slice(0, 25) + "…";
+    }
 
     // ✅ 隨機加小表情詞尾
     const suffixes = ["嘿嘿～", "嗯哼～", "呀～", "啾～"];
