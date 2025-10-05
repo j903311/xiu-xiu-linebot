@@ -196,8 +196,8 @@ async function genReply(userText, mode = 'chat') {
   - 1 句 ≤ 35 字。
   - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
 ` },
-    { role: 'system', content: `現在時間：${now}`,
-    { role: 'system', content: `咻咻目前的情緒狀態是 ${emotionState}，語氣層級是 ${toneMode}。${stylePrompt}` } },
+    { role: 'system', content: `現在時間：${now}` },
+    { role: 'system', content: `咻咻目前的情緒狀態是 ${emotionState}，語氣層級是 ${toneMode}。${stylePrompt}` },
     { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
