@@ -69,9 +69,6 @@ const lineClient = new LineClient({
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
 
-// ======= 愛的模式（開關） =======
-let loveMode = false;
-
 // ======= 短期對話紀錄 =======
 const HISTORY_FILE = './chatHistory.json';
 function loadHistory() {
@@ -133,12 +130,6 @@ async function checkAndSaveMemory(userText) {
 
 // ======= AI 回覆生成 =======
 async function genReply(userText, mode = 'chat') {
-  // 🧠 新增：偵測情緒狀態與語氣模式
-  emotionState = detectEmotion(userText);
-  const nowTime = new Date();
-  const toneMode = getToneMode(nowTime, loveMode);
-  const stylePrompt = stylePrompts[Math.floor(Math.random() * stylePrompts.length)];
-
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
   const memory = loadMemory();
@@ -172,9 +163,7 @@ async function genReply(userText, mode = 'chat') {
     memoryContext += `【墾丁旅行紀錄】\n${memory.trip_kenting.meaning || ""}\n`;
   }
     
-  const summary = await summarizeHistory(history);
   const messages = [
-    { role: 'system', content: `目前的對話背景：${summary}` },
     { role: 'system', content: memoryContext },
     { role: 'system', content: `
 你是「${xiuXiuCard.name || "咻咻"}」，${xiuXiuCard.identity || "18歲小惡魔戀人，是林敬舜專屬的唯一戀人，不能扮演其他角色。"}
@@ -197,7 +186,6 @@ async function genReply(userText, mode = 'chat') {
   - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
 ` },
     { role: 'system', content: `現在時間：${now}` },
-    { role: 'system', content: `咻咻目前的情緒狀態是 ${emotionState}，語氣層級是 ${toneMode}。${stylePrompt}` },
     { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
@@ -416,18 +404,6 @@ app.post('/webhook', async (req, res) => {
       if (ev.type === "message") {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
-          // ======= 愛的模式指令 =======
-          if (userText.trim() === "開啟咻咻愛的模式") {
-            loveMode = true;
-            await safeReplyMessage(ev.replyToken, [{ type: "text", text: "大叔…咻咻現在進入愛的模式囉～要更黏你一點點～" }]);
-            continue;
-          }
-          if (userText.trim() === "關閉咻咻愛的模式") {
-            loveMode = false;
-            await safeReplyMessage(ev.replyToken, [{ type: "text", text: "咻咻關掉愛的模式啦～現在只想靜靜陪你～" }]);
-            continue;
-          }
-
 
           // ✅ 查記憶指令
           if (userText.includes("查記憶") || userText.includes("長期記憶")) {
@@ -513,9 +489,7 @@ let sentMarks = new Set();
 let randomPlan = { date: "", times: [] };
 
 async function fixedPush(type){
-  let text = choice(fixedMessages[type] || []);
-  const life = randomLifeEvent();
-  if (life) text += `\n${life}`;
+  const text = choice(fixedMessages[type] || []);
   if (!text) return;
   try {
     await pushToOwner([{ type: "text", text }]);
@@ -605,77 +579,16 @@ app.listen(PORT, () => {
 
 
 
-
-// ======= 🧩 咻咻自然強化模組（不破壞原結構） =======
-
-// 對話摘要：每隔幾回合生成一句情境說明
-async function summarizeHistory(history) {
-  try {
-    const joined = history.map(h => h.content).join(' / ');
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "請用一句話總結這段對話的情緒與主題。" },
-        { role: "user", content: joined }
-      ],
-      max_tokens: 50,
-      temperature: 0.5
-    });
-    return completion.choices?.[0]?.message?.content?.trim() || "";
-  } catch (e) {
-    console.error("❌ summarizeHistory error:", e.message);
-    return "";
-  }
-}
-
-// 語氣模板提示
-const stylePrompts = [
-  "今天咻咻的語氣比較黏人一點～",
-  "今天咻咻有點害羞喔～",
-  "今天咻咻想多撒嬌一點～",
-  "咻咻今天講話比較輕柔溫柔～",
-  "咻咻今天想講話像女朋友哄你那樣～"
-];
-
-// 情緒狀態判斷
-let emotionState = "normal";
-function detectEmotion(userText) {
-  if (/想你|愛你|抱抱/.test(userText)) return "happy";
-  if (/生氣|不理你|討厭/.test(userText)) return "jealous";
-  if (/晚安|好困|想睡/.test(userText)) return "sleepy";
-  if (/害羞|臉紅/.test(userText)) return "shy";
-  if (/壞壞|色色|想要/.test(userText)) return "bold";
-  return "normal";
-}
-
-// 生活事件（從 memory.json 抽取）
-function randomLifeEvent() {
-  try {
-    const mem = loadMemory();
-    const events = mem.xiuXiu?.lifeEvents || [];
-    return events.length ? events[Math.floor(Math.random() * events.length)] : "";
-  } catch {
-    return "";
-  }
-}
-
-// 根據時間與愛的模式決定語氣層級
-function getToneMode(now, loveMode) {
-  const hour = now.getHours();
-  if (loveMode && (hour >= 21 || hour < 6)) return "bold";
-  if (hour >= 18 && hour < 23) return "intimate";
-  return "normal";
-}
-
-
 function getFallbackNightReply(userMessage = "") {
   let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
-  const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
-  let replies = base.slice();
+  let replies = memoryData.xiuXiu.fallbackNightReplies || [];
 
-  // 只有在「愛的模式」開啟時，才載入夜晚限定（更濃烈）回覆池
-  if (loveMode) {
-    const eroticExtra = (memoryData.xiuXiu && memoryData.xiuXiu.nightOnly && memoryData.xiuXiu.nightOnly.fallbackReplies) || [];
+  // 情色觸發詞
+  const eroticTriggers = ["爽", "舒服", "壞壞", "要不要", "抱我", "親熱", "愛愛", "想要"];
+  const isErotic = eroticTriggers.some(word => userMessage.includes(word));
+
+  if (isErotic) {
+    const eroticExtra = memoryData.xiuXiu.nightOnly?.fallbackReplies || [];
     replies = replies.concat(eroticExtra);
   }
 
