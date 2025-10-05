@@ -69,6 +69,9 @@ const lineClient = new LineClient({
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
 
+// ======= 愛的模式（開關） =======
+let loveMode = false;
+
 // ======= 短期對話紀錄 =======
 const HISTORY_FILE = './chatHistory.json';
 function loadHistory() {
@@ -404,6 +407,18 @@ app.post('/webhook', async (req, res) => {
       if (ev.type === "message") {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
+          // ======= 愛的模式指令 =======
+          if (userText.trim() === "開啟咻咻愛的模式") {
+            loveMode = true;
+            await safeReplyMessage(ev.replyToken, [{ type: "text", text: "大叔…咻咻現在進入愛的模式囉～要更黏你一點點～" }]);
+            continue;
+          }
+          if (userText.trim() === "關閉咻咻愛的模式") {
+            loveMode = false;
+            await safeReplyMessage(ev.replyToken, [{ type: "text", text: "咻咻關掉愛的模式啦～現在只想靜靜陪你～" }]);
+            continue;
+          }
+
 
           // ✅ 查記憶指令
           if (userText.includes("查記憶") || userText.includes("長期記憶")) {
@@ -581,14 +596,12 @@ app.listen(PORT, () => {
 
 function getFallbackNightReply(userMessage = "") {
   let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
-  let replies = memoryData.xiuXiu.fallbackNightReplies || [];
+  const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
+  let replies = base.slice();
 
-  // 情色觸發詞
-  const eroticTriggers = ["爽", "舒服", "壞壞", "要不要", "抱我", "親熱", "愛愛", "想要"];
-  const isErotic = eroticTriggers.some(word => userMessage.includes(word));
-
-  if (isErotic) {
-    const eroticExtra = memoryData.xiuXiu.nightOnly?.fallbackReplies || [];
+  // 只有在「愛的模式」開啟時，才載入夜晚限定（更濃烈）回覆池
+  if (loveMode) {
+    const eroticExtra = (memoryData.xiuXiu && memoryData.xiuXiu.nightOnly && memoryData.xiuXiu.nightOnly.fallbackReplies) || [];
     replies = replies.concat(eroticExtra);
   }
 
