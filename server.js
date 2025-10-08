@@ -192,7 +192,10 @@ async function genReply(userText, mode = 'chat') {
     { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
-  ];
+  ,
+    { role: 'system', content: `若使用者問「今天做什麼」「在幹嘛」「除了想我還做什麼」，
+請以「日常生活分享」為主題，隨機從咻咻的興趣、習慣或 lifeEvents 裡挑選一件事描述，
+最後再加一句撒嬌結尾，例如「嘿嘿～不過還是最想你啦」` }];
 
   try {
     const completion = await openai.chat.completions.create({
