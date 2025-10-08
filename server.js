@@ -814,3 +814,62 @@ genReply = async function(userText, mode = 'chat') {
   const finalArr = replyText.split("/").map(s => s.trim()).filter(Boolean);
   return finalArr.map(t => ({ type: "text", text: t }));
 };
+
+// ======= 語意理解層 v1（Semantic Understanding Layer） =======
+async function analyzeIntent(userText) {
+  try {
+    // 使用強模型 API Key (若有)
+    const strongKey = process.env.OPENAI_API_KEY_STRONG || process.env.OPENAI_API_KEY;
+    const strongOpenAI = new OpenAI({ apiKey: strongKey });
+
+    const completion = await strongOpenAI.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "你是一個語意意圖分類器，請判斷輸入文字屬於哪一類：情緒、提問、生活、關心、愛意、玩笑、工作、回憶。只回一個詞，不要多餘說明。"
+        },
+        { role: "user", content: userText }
+      ],
+      temperature: 0.3,
+      max_tokens: 5
+    });
+    return completion.choices?.[0]?.message?.content?.trim() || "生活";
+  } catch (err) {
+    console.error("❌ analyzeIntent error:", err.message);
+    return "生活";
+  }
+}
+
+// 包裝 genReply，加入語意層判斷
+const _genReplyWithSemanticBase = genReply;
+genReply = async function(userText, mode = 'chat') {
+  const intent = await analyzeIntent(userText);
+  console.log("🧭 Semantic intent:", intent);
+
+  const prefixMap = {
+    情緒: "（他現在情緒有點起伏，要溫柔安撫）",
+    提問: "（他在提問，請直接回答，但保持戀人語氣）",
+    生活: "（他在分享日常，請自然地陪聊）",
+    關心: "（他在關心你，請回應得更親密）",
+    愛意: "（他在表達愛或想念，要甜蜜回覆）",
+    玩笑: "（他在開玩笑，請用俏皮的語氣回應）",
+    工作: "（他在說工作或壓力，要貼心但不理性分析）",
+    回憶: "（他在回想過去的事，要帶點懷舊與感情）"
+  };
+
+  const prefix = prefixMap[intent] || "";
+  const combined = prefix ? `${prefix}${userText}` : userText;
+
+  // 呼叫原 genReply，若回覆偏離主題再重新生成一次
+  let reply = await _genReplyWithSemanticBase(combined, mode);
+  let replyText = Array.isArray(reply) ? reply.map(m => m.text).join(" / ") : (reply[0]?.text || "");
+
+  // 若模型答非所問，自動再生成一次
+  if (!replyText.includes("大叔") && !replyText.includes("咻咻") && replyText.length < 8) {
+    console.log("🔁 語意層重新生成（疑似偏離主題）");
+    reply = await _genReplyWithSemanticBase(`${combined}（請更貼近對話語意回答）`, mode);
+  }
+
+  return reply;
+};
