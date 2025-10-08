@@ -750,3 +750,67 @@ genReply = async function(userText, mode = 'chat') {
 // * 若要應用新長度限制，可在 genReply 內調整：
 // 每句 ≤ 22 字，總長 ≤ 45。
 // 這樣句子自然度更高，不會半句被截。
+
+
+
+// ======= 咻咻情感強化 v4 模組 =======
+
+let lastTopicMemory = { text: "", keywords: [] };
+let lastReplyKeywords = new Set();
+
+function extractKeywords(text) {
+  return (text.match(/[\u4e00-\u9fa5]{2,}/g) || []).slice(0, 5);
+}
+
+// 防重疊回應鎖
+function isRepeatedEmotion(reply) {
+  const common = ["靠", "抱", "累", "親", "想你", "睡"];
+  return common.some(k => reply.includes(k));
+}
+
+// 語義再取層
+async function regenerateIfMeaningless(userText, reply, genFn) {
+  const meaninglessPatterns = ["靠在你身邊", "想被你抱", "可以靠在你身邊嗎", "想靠著你", "想被抱一下"];
+  const isMeaningless = meaninglessPatterns.some(p => reply.includes(p));
+  if (isMeaningless) {
+    console.log("🔁 啟動語義再取層：重新生成回覆");
+    const retry = await genFn(userText + "（請回答他的問題內容，避免重複句式）");
+    const text = Array.isArray(retry) ? retry.map(m => m.text).join(" / ") : (retry[0]?.text || "");
+    return text || reply;
+  }
+  return reply;
+}
+
+// 包裝原始 genReply 加入短期上下文與語義再取
+const _originalGenReply_v3 = genReply;
+genReply = async function(userText, mode = 'chat') {
+  // 更新主題記憶
+  const currentKeywords = extractKeywords(userText);
+  const overlap = currentKeywords.filter(k => lastTopicMemory.keywords.includes(k));
+  const sameTopic = overlap.length > 0;
+
+  // 生成第一次回覆
+  let replyArray = await _originalGenReply_v3(userText, mode);
+  let replyText = Array.isArray(replyArray) ? replyArray.map(m => m.text).join(" / ") : "";
+
+  // 語義再取檢查
+  replyText = await regenerateIfMeaningless(userText, replyText, async (u) => {
+    const alt = await _originalGenReply_v3(u, mode);
+    return Array.isArray(alt) ? alt.map(m => m.text).join(" / ") : "";
+  });
+
+  // 防重疊回應
+  if (isRepeatedEmotion(replyText) && Array.from(lastReplyKeywords).some(k => replyText.includes(k))) {
+    console.log("🧠 防重疊回應觸發：生成新句");
+    const alt = await _originalGenReply_v3(userText + "（請避免重複上次語氣）", mode);
+    replyText = Array.isArray(alt) ? alt.map(m => m.text).join(" / ") : "";
+  }
+
+  // 更新記憶
+  lastTopicMemory = { text: userText, keywords: currentKeywords };
+  lastReplyKeywords = new Set(extractKeywords(replyText));
+
+  // 輸出組裝
+  const finalArr = replyText.split("/").map(s => s.trim()).filter(Boolean);
+  return finalArr.map(t => ({ type: "text", text: t }));
+};
