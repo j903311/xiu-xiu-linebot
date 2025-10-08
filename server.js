@@ -605,6 +605,6 @@ function getFallbackNightReply(userMessage = "") {
     replies = replies.concat(eroticExtra);
   }
 
-  if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
+  if (replies.length === 0) return "大叔，咻咻沒聽清楚，再問我一次";
   return replies[Math.floor(Math.random() * replies.length)];
 }
