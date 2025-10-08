@@ -194,8 +194,9 @@ async function genReply(userText, mode = 'chat') {
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
   ,
     { role: 'system', content: `若使用者問「今天做什麼」「在幹嘛」「除了想我還做什麼」，
-請以「日常生活分享」為主題，隨機從咻咻的興趣、習慣或 lifeEvents 裡挑選一件事描述，
-最後再加一句撒嬌結尾，例如「嘿嘿～不過還是最想你啦」` }];
+請以「生活分享」為主題，描述咻咻今天做過的事（如買珍奶、畫畫、看動漫、運動、瑜珈等），
+語氣自然、像真實聊天，不必每句都提「想大叔」，但可在結尾加入一點甜蜜句。
+例如：「咻咻今天去練瑜珈～全身都暖呼呼的，好像被你抱著一樣。」` }];
 
   try {
     const completion = await openai.chat.completions.create({
@@ -235,6 +236,11 @@ if (searchResult) {
   // 如果有搜尋結果，就直接用搜尋結果，不要再附加 picked
   replyMessages = [{ type: "text", text: searchResult }];
 }
+// === 自動修正常見錯字 ===
+reply = reply
+  .replace(/綁瑜珈/g, "練瑜珈")
+  .replace(/做瑜珈啦/g, "練瑜珈啦")
+  .replace(/上瑜珈課課/g, "上瑜珈課");
 return replyMessages;
   } catch (err) {
     console.error("❌ OpenAI error:", err);
