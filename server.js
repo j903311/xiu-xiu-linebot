@@ -1,10 +1,9 @@
-
-// ======= 咻咻智慧版 server.js =======
+// ======= 咻咻智慧版 server.js (修正版) =======
 // 保留原架構＋新增語境判斷層、語氣調整層、記憶呼應層
 
 import 'dotenv/config';
 import express from 'express';
-import { Client as LineClient } from '@line/bot-sdk';
+import line from '@line/bot-sdk';
 import OpenAI from 'openai';
 import fs from 'fs';
 
@@ -13,18 +12,23 @@ process.env.TZ = "Asia/Taipei";
 const app = express();
 app.use(express.json());
 
-const lineClient = new LineClient({
+const lineClient = new line.Client({
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.CHANNEL_SECRET,
 });
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
 
 // ======= 載入記憶 =======
 const MEMORY_FILE = './memory.json';
 function loadMemory() {
-  try { return JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8')); }
-  catch { return {}; }
+  try {
+    return JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8'));
+  } catch (err) {
+    console.error("❌ 無法讀取記憶檔案:", err);
+    return { xiuXiu: { identity: "可愛、黏人的戀人咻咻" }, logs: [] };
+  }
 }
 
 // ======= 新增：語境偵測模組 =======
@@ -66,9 +70,11 @@ async function genReply(userText) {
       max_tokens: 180
     });
 
-    let reply = completion.choices?.[0]?.message?.content?.trim() || "咻咻剛剛想大叔想到發呆啦～";
-    reply = reply.replace(/[
-]+/g, " ").split(/(?<=[。！？!?])/).map(s => s.trim()).filter(Boolean).join(" ");
+    const choice = completion.choices && completion.choices[0];
+    const replyContent = choice?.message?.content || choice?.text || "";
+    let reply = replyContent.trim() || "咻咻剛剛想大叔想到發呆啦～";
+
+    reply = reply.replace(/[\r\n]+/g, " ").split(/(?<=[。！？!?])/).map(s => s.trim()).filter(Boolean).join(" ");
 
     return [{ type: "text", text: reply }];
   } catch (err) {
@@ -80,6 +86,7 @@ async function genReply(userText) {
 
 // ======= Webhook =======
 app.post('/webhook', async (req, res) => {
+  res.status(200).send("OK"); // 先回應 LINE，避免超時
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
       if (ev.type === "message" && ev.message.type === "text") {
@@ -88,7 +95,6 @@ app.post('/webhook', async (req, res) => {
       }
     }
   }
-  res.status(200).send("OK");
 });
 
-app.listen(process.env.PORT || 8080, () => console.log("🚀 XiuXiu 智慧版啟動完成"));
+app.listen(process.env.PORT || 8080, () => console.log("🚀 XiuXiu 智慧版啟動完成 (修正版)"));
