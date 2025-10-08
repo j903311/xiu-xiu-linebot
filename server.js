@@ -1,5 +1,5 @@
-// ======= 咻咻智慧版 server.js (修正版) =======
-// 保留原架構＋新增語境判斷層、語氣調整層、記憶呼應層
+// ======= 咻咻智慧版 server.js (短回覆版) =======
+// 保留原架構＋新增語境判斷層、語氣調整層、記憶呼應層（控制句數）
 
 import 'dotenv/config';
 import express from 'express';
@@ -31,7 +31,7 @@ function loadMemory() {
   }
 }
 
-// ======= 新增：語境偵測模組 =======
+// ======= 語境偵測模組 =======
 function detectMood(userText) {
   if (userText.match(/洗澡|香香|抱|親|壞壞|想你|專屬|佔有/)) return "intimate";
   if (userText.match(/晚安|睡覺|好累|想睡/)) return "night";
@@ -40,17 +40,17 @@ function detectMood(userText) {
   return "normal";
 }
 
-// ======= 新增：智慧回覆生成 =======
+// ======= 智慧回覆生成（短句控制） =======
 async function genReply(userText) {
   const memory = loadMemory();
   const mood = detectMood(userText);
   const xiuXiuCard = memory.xiuXiu || {};
-  let systemTone = "保持咻咻平常可愛、黏人、自然的語氣。";
+  let systemTone = "保持咻咻平常可愛、黏人、自然的語氣，每次回答請控制在2句以內。";
 
-  if (mood === "intimate") systemTone = "用親密、撒嬌、輕挑的語氣回覆，語句要連貫，不可突然換話題或結尾。";
-  if (mood === "night") systemTone = "用溫柔、安撫、想念的語氣回覆，不要用制式『晚安』結尾。";
-  if (mood === "happy") systemTone = "用活潑開心的語氣，表達分享與互動感。";
-  if (mood === "angry") systemTone = "用吃醋或小任性的語氣回覆，讓對話有情緒互動。";
+  if (mood === "intimate") systemTone = "用親密、撒嬌、輕挑的語氣，每次回答請控制在2句以內。";
+  if (mood === "night") systemTone = "用溫柔、安撫、想念的語氣，每次回答請控制在2句以內。";
+  if (mood === "happy") systemTone = "語氣活潑可愛，每次回答請控制在2句以內。";
+  if (mood === "angry") systemTone = "用吃醋或小任性的語氣，每次回答請控制在2句以內。";
 
   const memoryContext = `【咻咻人物卡】${xiuXiuCard.identity || ""}`;
   const logs = (memory.logs || []).map(m => m.text).join("、");
@@ -66,15 +66,20 @@ async function genReply(userText) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages,
-      temperature: 0.9,
-      max_tokens: 180
+      temperature: 0.85,
+      max_tokens: 80
     });
 
     const choice = completion.choices && completion.choices[0];
     const replyContent = choice?.message?.content || choice?.text || "";
     let reply = replyContent.trim() || "咻咻剛剛想大叔想到發呆啦～";
 
-    reply = reply.replace(/[\r\n]+/g, " ").split(/(?<=[。！？!?])/).map(s => s.trim()).filter(Boolean).join(" ");
+    reply = reply.replace(/[\r\n]+/g, " ")
+                 .split(/(?<=[。！？!?])/)
+                 .map(s => s.trim())
+                 .filter(Boolean)
+                 .slice(0, 2)
+                 .join(" ");
 
     return [{ type: "text", text: reply }];
   } catch (err) {
@@ -97,4 +102,4 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT || 8080, () => console.log("🚀 XiuXiu 智慧版啟動完成 (修正版)"));
+app.listen(process.env.PORT || 8080, () => console.log("🚀 XiuXiu 短回覆版啟動完成"));
