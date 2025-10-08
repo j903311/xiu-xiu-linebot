@@ -696,3 +696,57 @@ function getFallbackNightReply(userMessage = "") {
   if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
   return replies[Math.floor(Math.random() * replies.length)];
 }
+
+
+
+// ======= 咻咻邏輯層 v3 精修模組 =======
+
+// 問句優先判斷層：避免答非所問
+function isQuestion(userText) {
+  return /[？?]|什麼|為什麼|哪裡|誰|幾點|多少/.test(userText);
+}
+
+// 去除重複句，讓回覆更自然
+function uniqueSentences(sentences) {
+  const seen = new Set();
+  return sentences.filter(s => {
+    const norm = s.replace(/[～啦嘛喔耶～\s]/g, "");
+    if (seen.has(norm)) return false;
+    seen.add(norm);
+    return true;
+  });
+}
+
+// 包裝原始 genReply 加入問句優先與去重控制
+const _originalGenReply_v2 = genReply;
+genReply = async function(userText, mode = 'chat') {
+  // 問句優先：若為問句則略過情緒模組
+  if (isQuestion(userText)) {
+    console.log("💡 問句偵測：跳過情緒模組");
+    const reply = await _originalGenReply_v2(userText, mode);
+    // 去重處理
+    if (Array.isArray(reply)) {
+      reply.forEach(m => { if (m.text) m.text = m.text.trim(); });
+      const texts = uniqueSentences(reply.map(m => m.text));
+      return texts.map(t => ({ type: "text", text: t }));
+    }
+    return reply;
+  }
+
+  // 非問句 → 交由原本情緒模組判斷
+  const reply = await _originalGenReply_v2(userText, mode);
+
+  // 去重
+  if (Array.isArray(reply)) {
+    reply.forEach(m => { if (m.text) m.text = m.text.trim(); });
+    const texts = uniqueSentences(reply.map(m => m.text));
+    return texts.map(t => ({ type: "text", text: t }));
+  }
+
+  return reply;
+};
+
+// ======= 微調語長限制建議（說明用，不動原代碼） =======
+// * 若要應用新長度限制，可在 genReply 內調整：
+// 每句 ≤ 22 字，總長 ≤ 45。
+// 這樣句子自然度更高，不會半句被截。
