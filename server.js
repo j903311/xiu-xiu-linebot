@@ -738,6 +738,20 @@ genReply = async function(userText, mode = 'chat') {
 };
 
 
+
+// ======= 雙人格切換層（私訊=戀人咻咻 / 群組=社交咻咻） =======
+async function generatePersonaReply(userText, mode, isGroup = false, displayName = "") {
+  if (isGroup) {
+    // 社交咻咻語氣：可愛、自然、輕鬆、不曖昧
+    return await genReply(
+      `（群組社交模式，請用自然可愛的朋友語氣回答，避免使用「大叔」或曖昧語氣）${displayName ? displayName + "說：" : ""}${userText}`,
+      mode
+    );
+  } else {
+    // 戀人咻咻語氣：維持原設定
+    return await genReply(userText, mode);
+  }
+}
 function getFallbackNightReply(userMessage = "") {
   let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
   const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
