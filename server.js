@@ -404,7 +404,41 @@ app.post('/webhook', async (req, res) => {
   console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
-// ======= 群組事件支援 =======
+
+// ======= 群組事件支援（社交可愛語氣） =======
+if (ev.type === "join" && ev.source.type === "group") {
+  await safeReplyMessage(ev.replyToken, [
+    { type: "text", text: "大家好～我是咻咻～請多多指教喔～♡" }
+  ]);
+  continue;
+}
+
+if (ev.source.type === "group" && ev.message?.type === "text") {
+  const userText = ev.message.text;
+
+  // 嘗試取得說話者名稱
+  let displayName = "某人";
+  try {
+    const profile = await lineClient.getGroupMemberProfile(ev.source.groupId, ev.source.userId);
+    displayName = profile.displayName || "某人";
+  } catch (e) {
+    console.warn("⚠️ 無法取得群組成員資料：", e.message);
+  }
+
+  // 只在被叫到「咻咻」時回覆
+  if (userText.includes("咻咻")) {
+    console.log("👥 群組觸發：", displayName, "說：", userText);
+    const replyMessages = await genReply(
+      `（群組模式，請用自然可愛、社交口吻回答，不要太私密，也不要用「大叔」）${displayName}說：「${userText}」`,
+      "chat"
+    );
+    await safeReplyMessage(ev.replyToken, replyMessages, userText);
+  }
+
+  // 群組內不記錄記憶
+  continue;
+}
+
 if (ev.type === "join" && ev.source.type === "group") {
   await safeReplyMessage(ev.replyToken, [
     { type: "text", text: "大家好～我是咻咻～請多多指教喔～♡" }
