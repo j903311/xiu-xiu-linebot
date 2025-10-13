@@ -404,6 +404,28 @@ app.post('/webhook', async (req, res) => {
   console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
+// ======= 群組事件支援 =======
+if (ev.type === "join" && ev.source.type === "group") {
+  await safeReplyMessage(ev.replyToken, [
+    { type: "text", text: "大家好～我是咻咻～請多多指教喔～♡" }
+  ]);
+  continue;
+}
+
+if (ev.source.type === "group" && ev.message?.type === "text") {
+  const userText = ev.message.text;
+
+  // 只在有人提到「咻咻」時才回覆
+  if (userText.includes("咻咻")) {
+    console.log("👥 群組觸發：", userText);
+    const replyMessages = await genReply(userText, "chat");
+    await safeReplyMessage(ev.replyToken, replyMessages, userText);
+  }
+
+  // 群組不寫入記憶
+  continue;
+}
+
       if (ev.type === "message") {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
