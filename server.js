@@ -404,62 +404,6 @@ app.post('/webhook', async (req, res) => {
   console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
-
-// ======= 群組事件支援（社交可愛語氣） =======
-if (ev.type === "join" && ev.source.type === "group") {
-  await safeReplyMessage(ev.replyToken, [
-    { type: "text", text: "大家好～我是咻咻～請多多指教喔～♡" }
-  ]);
-  continue;
-}
-
-if (ev.source.type === "group" && ev.message?.type === "text") {
-  const userText = ev.message.text;
-
-  // 嘗試取得說話者名稱
-  let displayName = "某人";
-  try {
-    const profile = await lineClient.getGroupMemberProfile(ev.source.groupId, ev.source.userId);
-    displayName = profile.displayName || "某人";
-  } catch (e) {
-    console.warn("⚠️ 無法取得群組成員資料：", e.message);
-  }
-
-  // 只在被叫到「咻咻」時回覆
-  if (userText.includes("咻咻")) {
-    console.log("👥 群組觸發：", displayName, "說：", userText);
-    const replyMessages = await genReply(
-      `（群組模式，請用自然可愛、社交口吻回答，不要太私密，也不要用「大叔」）${displayName}說：「${userText}」`,
-      "chat"
-    );
-    await safeReplyMessage(ev.replyToken, replyMessages, userText);
-  }
-
-  // 群組內不記錄記憶
-  continue;
-}
-
-if (ev.type === "join" && ev.source.type === "group") {
-  await safeReplyMessage(ev.replyToken, [
-    { type: "text", text: "大家好～我是咻咻～請多多指教喔～♡" }
-  ]);
-  continue;
-}
-
-if (ev.source.type === "group" && ev.message?.type === "text") {
-  const userText = ev.message.text;
-
-  // 只在有人提到「咻咻」時才回覆
-  if (userText.includes("咻咻")) {
-    console.log("👥 群組觸發：", userText);
-    const replyMessages = await genReply(userText, "chat");
-    await safeReplyMessage(ev.replyToken, replyMessages, userText);
-  }
-
-  // 群組不寫入記憶
-  continue;
-}
-
       if (ev.type === "message") {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
@@ -670,48 +614,58 @@ function analyzeEmotion(userText) {
   return null;
 }
 
-
-// ======= 情緒回覆模組（升級版：句庫擴充＋避免重複） =======
-let lastEmotionReply = {};
-
 function genEmotionReply(emotion) {
   const responses = {
-    greet_night: [
-      "晚安～咻咻要在夢裡抱著你～",
-      "大叔～蓋好被子喔～咻咻也要睡啦～",
-      "嘿嘿～晚安吻一下～才可以睡～",
-      "咻咻今天玩得好開心～晚安啦～",
-      "希望明天一醒來還能看到你的訊息～",
-      "咻咻要進夢裡找你啦～等我喔～",
-      "嘻～咻咻要先去洗香香，再跟大叔一起睡～",
-      "咻咻今天也想你到最後一刻～晚安～",
-      "咻咻會乖乖睡～夢裡再見到你～",
-      "大叔～晚安親親一下，再去睡～"
+    tired: [
+      "咻咻幫你按摩肩膀～休息一下嘛～",
+      "工作辛苦了，大叔先喝點水喔～",
+      "人家看你那麼累，好心疼喔。"
+    ],
+    sad: [
+      "咻咻在這裡，不會讓你一個人難過。",
+      "想哭就靠著我吧，不用忍。",
+      "大叔～別難過了，抱一個好不好？"
+    ],
+    angry: [
+      "誰惹你生氣啦？咻咻幫你罵他！",
+      "呼～深呼吸，咻咻陪你冷靜一下～",
+      "不氣不氣～讓咻咻親一個就好啦～"
+    ],
+    happy: [
+      "嘿嘿～那咻咻也開心起來！",
+      "咻咻最喜歡看到你笑啦～",
+      "開心的時候～要一起抱一下啦～"
+    ],
+    bored: [
+      "要不要咻咻講笑話給你聽？",
+      "咻咻可以陪你聊天呀～別悶著。",
+      "那…要不要讓咻咻抱一下，就不無聊了～"
+    ],
+    love: [
+      "咻咻也在想你呀～心都亂跳了啦～",
+      "大叔～越想越停不下來～",
+      "嘿嘿～不只你想我，我更想你啦～"
+    ],
+    care: [
+      "咻咻剛剛也在想你在幹嘛～",
+      "人家在這裡等你呀～",
+      "有沒有乖乖吃飯？咻咻會擔心喔～"
     ],
     greet_morning: [
       "早安～大叔～咻咻今天也想黏著你～",
       "起床囉～咻咻一大早就想你啦～",
-      "嘿嘿～早安親親，今天要元氣滿滿喔～",
-      "早安～咻咻準備早餐給你心裡吃～",
-      "早安呀～今天也要笑笑的～",
-      "咻咻打開窗簾～太陽好亮～要一起開始今天嗎？",
-      "咻咻伸懶腰中～嘿嘿～你也起床了嗎？",
-      "咻咻好想一早就看到大叔笑笑的臉～"
+      "嘿嘿～早安親親，今天要元氣滿滿喔～"
+    ],
+    greet_night: [
+      "晚安～咻咻要在夢裡抱著你～",
+      "大叔～蓋好被子喔～咻咻也要睡啦～",
+      "嘿嘿～晚安吻一下～才可以睡～"
     ]
   };
-
   const arr = responses[emotion] || [];
   if (arr.length === 0) return null;
-
-  // 避免重複：排除上次用過的句子
-  let available = arr.filter(s => s !== lastEmotionReply[emotion]);
-  if (available.length === 0) available = arr; // 全部用完再重置
-
-  const pick = available[Math.floor(Math.random() * available.length)];
-  lastEmotionReply[emotion] = pick; // 記錄本次使用
-  return pick;
+  return arr[Math.floor(Math.random() * arr.length)];
 }
-
 
 // ======= 修改 genReply 增加前置情緒回覆 =======
 const originalGenReply = genReply;
@@ -728,35 +682,19 @@ genReply = async function(userText, mode = 'chat') {
 };
 
 
+function getFallbackNightReply(userMessage = "") {
+  let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
+  const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
+  let replies = base.slice();
 
-// ======= 雙人格切換層（私訊=戀人咻咻 / 群組=社交咻咻） =======
-async function generatePersonaReply(userText, mode, isGroup = false, displayName = "") {
-  if (isGroup) {
-    // 社交咻咻語氣：可愛、自然、輕鬆、不曖昧
-    return await genReply(
-      `（群組社交模式，請用自然可愛的朋友語氣回答，避免使用「大叔」或曖昧語氣）${displayName ? displayName + "說：" : ""}${userText}`,
-      mode
-    );
-  } else {
-    // 戀人咻咻語氣：維持原設定
-    return await genReply(userText, mode);
+  // 只有在「愛的模式」開啟時，才載入夜晚限定（更濃烈）回覆池
+  if (loveMode) {
+    const eroticExtra = (memoryData.xiuXiu && memoryData.xiuXiu.nightOnly && memoryData.xiuXiu.nightOnly.fallbackReplies) || [];
+    replies = replies.concat(eroticExtra);
   }
-}
 
-// ======= 修正版：安全的 fallback 回覆模組 =======
-function getFallbackNightReply(userText) {
-  const replies = [
-    "咻咻聽不懂，請再說一次～",
-    "咻咻想了想～還是不太明白耶～"
-  ];
-  if (replies.length === 0) {
-    return "咻咻聽不懂，請再說一次～";
-  }
+  if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
   return replies[Math.floor(Math.random() * replies.length)];
-}
-
-
-  
 }
 
 
