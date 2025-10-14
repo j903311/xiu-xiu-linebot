@@ -742,12 +742,21 @@ async function generatePersonaReply(userText, mode, isGroup = false, displayName
     return await genReply(userText, mode);
   }
 }
+
+// ======= 修正版：安全的 fallback 回覆模組 =======
 function getFallbackNightReply(userText) {
-  return "咻咻聽不懂，請再說一次～";
+  const replies = [
+    "咻咻聽不懂，請再說一次～",
+    "咻咻想了想～還是不太明白耶～"
+  ];
+  if (replies.length === 0) {
+    return "咻咻聽不懂，請再說一次～";
+  }
+  return replies[Math.floor(Math.random() * replies.length)];
 }
 
-  if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
-  return replies[Math.floor(Math.random() * replies.length)];
+
+  
 }
 
 
