@@ -742,16 +742,9 @@ async function generatePersonaReply(userText, mode, isGroup = false, displayName
     return await genReply(userText, mode);
   }
 }
-function getFallbackNightReply(userMessage = "") {
-  let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
-  const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
-  let replies = base.slice();
-
-  // 只有在「愛的模式」開啟時，才載入夜晚限定（更濃烈）回覆池
-  if (loveMode) {
-    const eroticExtra = (memoryData.xiuXiu && memoryData.xiuXiu.nightOnly && memoryData.xiuXiu.nightOnly.fallbackReplies) || [];
-    replies = replies.concat(eroticExtra);
-  }
+function getFallbackNightReply(userText) {
+  return "咻咻聽不懂，請再說一次～";
+}
 
   if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
   return replies[Math.floor(Math.random() * replies.length)];
