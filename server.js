@@ -94,6 +94,30 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ======= 最近互動紀錄（推播防干擾） =======
+const LAST_ACTIVE_FILE = './lastActive.json';
+function loadLastActive(){
+  try{
+    const data = fs.readFileSync(LAST_ACTIVE_FILE, 'utf-8');
+    return JSON.parse(data);
+  }catch{
+    return { lastActiveTs: 0 };
+  }
+}
+function markUserActive(){
+  try{
+    fs.writeFileSync(LAST_ACTIVE_FILE, JSON.stringify({ lastActiveTs: Date.now() }, null, 2));
+  }catch(e){
+    console.error("❌ 無法寫入 lastActive.json:", e?.message || e);
+  }
+}
+function recentlyChatted(minutes=3){
+  const { lastActiveTs } = loadLastActive();
+  if(!lastActiveTs) return false;
+  const diffMin = (Date.now() - lastActiveTs) / 60000;
+  return diffMin < minutes;
+}
+
 // ======= 長期記憶（含人物卡）=======
 const MEMORY_FILE = './memory.json';
 function loadMemory() {
@@ -220,8 +244,8 @@ async function genReply(userText, mode = 'chat') {
       }
     }
 
-    history.push({ role: 'user', content: userText });
-    history.push({ role: 'assistant', content: picked.join(" / ") });
+    history.push({ role: 'user', content: userText, time: new Date().toISOString() });
+    history.push({ role: 'assistant', content: picked.join(" / "), time: new Date().toISOString() });
     saveHistory(history);
 
     const delayMs = Math.floor(Math.random() * 2000) + 1000;
@@ -405,6 +429,8 @@ app.post('/webhook', async (req, res) => {
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
       if (ev.type === "message") {
+          // 標記最近互動時間
+          markUserActive();
         if (ev.message.type === "text") {
           const userText = ev.message.text;
           // ======= 愛的模式指令 =======
@@ -593,6 +619,8 @@ let sentMarks = new Set();
 let randomPlan = { date: "", times: [] };
 
 async function fixedPush(type){
+  // 推播防干擾：最近有互動就跳過
+  if (recentlyChatted(3)) { console.log("🕐 跳過推播：使用者剛互動過"); return; }
   const text = choice(fixedMessages[type] || []);
   if (!text) return;
   try {
@@ -626,6 +654,8 @@ function ensureTodayPlan(now){
 
 // 每 15 秒檢查一次
 setInterval(async () => {
+  // 推播防干擾：最近有互動就整段跳過
+  if (recentlyChatted(3)) { console.log("🕐 略過本輪推播（最近互動）"); return; }
   try {
     const now = nowInTZ("Asia/Taipei");
     ensureTodayPlan(now);
@@ -647,6 +677,7 @@ setInterval(async () => {
       for (const rt of randomPlan.times){
         const key = "rand:"+rt+":"+randomPlan.date;
         if (t === rt && !sentMarks.has(key)){
+          if (recentlyChatted(3)) { console.log("🕐 跳過隨機推播（最近互動）"); continue; }
           const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
           try{
             await pushToOwner(msgs);
@@ -796,6 +827,17 @@ function isQuestion(userText) {
 }
 
 // 去除重複句，讓回覆更自然
+
+// 取得上一句使用者訊息（主題連貫用）
+function getLastUserMessage(){
+  const h = loadHistory();
+  for(let i=h.length-1;i>=0;i--){
+    if(h[i].role==='user' && typeof h[i].content==='string'){
+      return h[i].content;
+    }
+  }
+  return '';
+}
 function uniqueSentences(sentences) {
   const seen = new Set();
   return sentences.filter(s => {
@@ -947,17 +989,24 @@ genReply = async function(userText, mode = 'chat') {
     回憶: "（他在回想過去的事，要帶點懷舊與感情）"
   };
 
-  const prefix = prefixMap[intent] || "";
-  const combined = prefix ? `${prefix}${userText}` : userText;
+  \1
+  // 主題連貫：優先延續上一句（非問句時）
+  try{
+    const _prev = getLastUserMessage();
+    if(_prev && !isQuestion(userText) && Math.random() < 0.8){
+      userText = `延續剛剛的話題：「${_prev}」。` + userText;
+    }
+  }catch(e){ console.warn("⚠️ 主題連貫失敗（忽略）：", e?.message || e); }
+  const combinedTopic = prefix ? `${prefix}${userText}` : userText;
 
   // 呼叫原 genReply，若回覆偏離主題再重新生成一次
-  let reply = await _genReplyWithSemanticBase(combined, mode);
+  let reply = await _genReplyWithSemanticBase(combinedTopic, mode);
   let replyText = Array.isArray(reply) ? reply.map(m => m.text).join(" / ") : (reply[0]?.text || "");
 
   // 若模型答非所問，自動再生成一次
   if (!replyText.includes("大叔") && !replyText.includes("咻咻") && replyText.length < 8) {
     console.log("🔁 語意層重新生成（疑似偏離主題）");
-    reply = await _genReplyWithSemanticBase(`${combined}（請更貼近對話語意回答）`, mode);
+    reply = await _genReplyWithSemanticBase(`${combinedTopic}（請更貼近對話語意回答）`, mode);
   }
 
   return reply;
