@@ -708,7 +708,7 @@ async function fixedPush(type) {
       const weather = await getTodayWeather();
       const remark = getWeatherRemark(weather);
       text += "
-"" + remark;
+" + remark;
     }
 
     await pushToOwner([{ type: "text", text }]);
