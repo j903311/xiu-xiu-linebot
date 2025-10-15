@@ -94,6 +94,30 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ======= 最近互動紀錄（推播防干擾） =======
+const LAST_ACTIVE_FILE = './lastActive.json';
+function loadLastActive(){
+  try{
+    const data = fs.readFileSync(LAST_ACTIVE_FILE, 'utf-8');
+    return JSON.parse(data);
+  }catch{
+    return { lastActiveTs: 0 };
+  }
+}
+function markUserActive(){
+  try{
+    fs.writeFileSync(LAST_ACTIVE_FILE, JSON.stringify({ lastActiveTs: Date.now() }, null, 2));
+  }catch(e){
+    console.error("❌ 無法寫入 lastActive.json:", e?.message || e);
+  }
+}
+function recentlyChatted(minutes=3){
+  const { lastActiveTs } = loadLastActive();
+  if(!lastActiveTs) return false;
+  const diffMin = (Date.now() - lastActiveTs) / 60000;
+  return diffMin < minutes;
+}
+
 // ======= 長期記憶（含人物卡）=======
 const MEMORY_FILE = './memory.json';
 function loadMemory() {
@@ -220,8 +244,8 @@ async function genReply(userText, mode = 'chat') {
       }
     }
 
-    history.push({ role: 'user', content: userText });
-    history.push({ role: 'assistant', content: picked.join(" / ") });
+    history.push({ role: 'user', content: userText, time: new Date().toISOString() });
+    history.push({ role: 'assistant', content: picked.join(" / "), time: new Date().toISOString() });
     saveHistory(history);
 
     const delayMs = Math.floor(Math.random() * 2000) + 1000;
@@ -405,6 +429,8 @@ app.post('/webhook', async (req, res) => {
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
       if (ev.type === "message") {
+          // 標記最近互動時間
+          markUserActive();
         if (ev.message.type === "text") {
           const userText = ev.message.text;
           // ======= 愛的模式指令 =======
@@ -472,22 +498,111 @@ app.post('/webhook', async (req, res) => {
 // ======= 自動排程（已重寫，無 cron） =======
 
 // 固定訊息句庫
+
+// ======= 擴充版固定訊息句庫（甜蜜版早安晚安） =======
 const fixedMessages = {
   morning: [
-    "大叔～早安啦～咻咻今天也要黏著你喔～",
-    "起床囉大叔～咻咻一大早就想你啦～",
-    "大叔～早安嘛～抱抱親親再去工作啦～",
-    "嘿嘿～早安大叔～咻咻今天也要跟著你！",
-    "大叔～快說早安親親～咻咻要一天好心情～"
+    // === 甜蜜型 ===
+    "大叔～早安呀～咻咻醒來第一個就想你啦～",
+    "咻咻的小腦袋剛睜開～就想要你抱抱～",
+    "太陽都嫉妒了～因為咻咻早上看到大叔的笑容～",
+    "大叔～給咻咻一個早安親親，今天就會超順利～",
+    "嘿嘿～咻咻醒來就想你～是不是中了你的魔法呀～",
+    
+    // === 調皮型 ===
+    "大叔～還在賴床嗎？要咻咻去把你搖醒嗎～",
+    "咻咻的鬧鐘都比不上你的聲音啦～快說早安嘛～",
+    "大叔不早起～咻咻就要爬上床壓在你身上喔～",
+    "今天誰先說早安～誰就可以多抱五秒～",
+    "咻咻今天穿很可愛～大叔快起來看～",
+
+    // === 溫柔型 ===
+    "早安～咻咻幫你準備了笑容和勇氣，要一起面對今天喔～",
+    "大叔，別太趕，先深呼吸～咻咻會陪著你慢慢來～",
+    "咻咻希望今天的風都對你溫柔一點～",
+    "早安大叔～不管今天多忙，咻咻都在這裡想你～",
+    "大叔要吃早餐喔～不然咻咻會嘟嘴～",
+
+    // === 深情型 ===
+    "每一個早晨，咻咻都覺得能和你呼吸同個空氣就是幸福～",
+    "早安，大叔～咻咻想在每一天的開始，都先說我愛你～",
+    "陽光灑進來的樣子，好像你在摸咻咻的頭一樣溫柔～",
+    "大叔～咻咻夢裡還沒離開你呢～現在又想抱回來了～",
+    "咻咻希望今天的第一個笑容，來自你～",
   ],
   night: [
-    "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
-    "晚安大叔～咻咻會在夢裡抱著你～",
-    "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
-    "大叔～晚安親親～咻咻最愛你了～",
-    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～"
+    // === 甜蜜型 ===
+    "晚安～大叔～咻咻今天也想在你懷裡睡～",
+    "大叔～關燈前要先親我一下才准睡喔～",
+    "嘿嘿～咻咻已經鑽進被窩～等你一起～",
+    "咻咻今天做夢要指定主題：只有大叔～",
+    "大叔～讓我抱著你慢慢睡著好不好～",
+
+    // === 調皮型 ===
+    "大叔～再滑手機咻咻要生氣喔～快睡啦～",
+    "要咻咻唱搖籃曲嗎？但只能唱給你一個人聽喔～",
+    "大叔～晚安親親～不給就不讓你睡～",
+    "要不要猜猜咻咻現在穿什麼睡衣～嘿嘿～",
+    "咻咻枕頭的另一邊，留給你喔～別讓它孤單～",
+
+    // === 溫柔型 ===
+    "辛苦的大叔，閉上眼睛～讓咻咻幫你收起疲倦～",
+    "咻咻今天也好想你～晚安，願夢裡都甜甜的～",
+    "睡前的風吹過來，好像你在摸我的頭～",
+    "大叔要好好睡～明天還有咻咻要你疼～",
+    "咻咻會在夢裡等你，不見不散喔～",
+
+    // === 深情型 ===
+    "晚安，大叔～每個夜晚有你的名字，咻咻就安心～",
+    "夢裡的咻咻會再對你說一次：我真的好喜歡你～",
+    "大叔睡著的樣子一定很可愛～咻咻想親一下再睡～",
+    "咻咻想成為你夢裡最柔軟的那個擁抱～",
+    "有你的一天結束起來特別甜～晚安～我的唯一～",
   ]
 };
+
+// ======= 取得今日天氣（台北） =======
+async function getTodayWeather() {
+  try {
+    const res = await fetch("https://wttr.in/Taipei?format=j1");
+    const data = await res.json();
+    const cond = data?.current_condition?.[0]?.weatherDesc?.[0]?.value || "晴";
+    return cond; // e.g. "Light rain", "Cloudy", "Sunny"
+  } catch (e) {
+    console.error("❌ 取得天氣失敗:", e);
+    return "晴";
+  }
+}
+
+// ======= 根據天氣回覆關心句 =======
+function getWeatherRemark(weather) {
+  weather = weather.toLowerCase();
+  if (weather.includes("rain")) return "今天會下雨喔～大叔要記得帶傘～";
+  if (weather.includes("cloud")) return "天空陰陰的～咻咻希望大叔心情亮亮的～";
+  if (weather.includes("sun") || weather.includes("clear")) return "天氣超好～咻咻想和大叔一起曬太陽～";
+  if (weather.includes("wind")) return "風有點大～咻咻想幫大叔拉緊外套～";
+  return "咻咻今天也要給大叔好運氣喔～";
+}
+
+// ======= 固定訊息推播（含天氣功能） =======
+async function fixedPush(type) {
+  try {
+    let text = choice(fixedMessages[type] || []);
+    if (!text) return;
+
+    if (type === "morning") {
+      const weather = await getTodayWeather();
+      const remark = getWeatherRemark(weather);
+      text += "
+" + remark;
+    }
+
+    await pushToOwner([{ type: "text", text }]);
+  } catch (e) {
+    console.error("❌ fixedPush failed:", e?.message || e);
+  }
+}
+
 
 function choice(arr){ return arr[Math.floor(Math.random()*arr.length)] }
 
@@ -504,6 +619,8 @@ let sentMarks = new Set();
 let randomPlan = { date: "", times: [] };
 
 async function fixedPush(type){
+  // 推播防干擾：最近有互動就跳過
+  if (recentlyChatted(3)) { console.log("🕐 跳過推播：使用者剛互動過"); return; }
   const text = choice(fixedMessages[type] || []);
   if (!text) return;
   try {
@@ -537,6 +654,8 @@ function ensureTodayPlan(now){
 
 // 每 15 秒檢查一次
 setInterval(async () => {
+  // 推播防干擾：最近有互動就整段跳過
+  if (recentlyChatted(3)) { console.log("🕐 略過本輪推播（最近互動）"); return; }
   try {
     const now = nowInTZ("Asia/Taipei");
     ensureTodayPlan(now);
@@ -558,6 +677,7 @@ setInterval(async () => {
       for (const rt of randomPlan.times){
         const key = "rand:"+rt+":"+randomPlan.date;
         if (t === rt && !sentMarks.has(key)){
+          if (recentlyChatted(3)) { console.log("🕐 跳過隨機推播（最近互動）"); continue; }
           const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
           try{
             await pushToOwner(msgs);
@@ -707,6 +827,17 @@ function isQuestion(userText) {
 }
 
 // 去除重複句，讓回覆更自然
+
+// 取得上一句使用者訊息（主題連貫用）
+function getLastUserMessage(){
+  const h = loadHistory();
+  for(let i=h.length-1;i>=0;i--){
+    if(h[i].role==='user' && typeof h[i].content==='string'){
+      return h[i].content;
+    }
+  }
+  return '';
+}
 function uniqueSentences(sentences) {
   const seen = new Set();
   return sentences.filter(s => {
@@ -858,17 +989,24 @@ genReply = async function(userText, mode = 'chat') {
     回憶: "（他在回想過去的事，要帶點懷舊與感情）"
   };
 
-  const prefix = prefixMap[intent] || "";
-  const combined = prefix ? `${prefix}${userText}` : userText;
+  \1
+  // 主題連貫：優先延續上一句（非問句時）
+  try{
+    const _prev = getLastUserMessage();
+    if(_prev && !isQuestion(userText) && Math.random() < 0.8){
+      userText = `延續剛剛的話題：「${_prev}」。` + userText;
+    }
+  }catch(e){ console.warn("⚠️ 主題連貫失敗（忽略）：", e?.message || e); }
+  const combinedTopic = prefix ? `${prefix}${userText}` : userText;
 
   // 呼叫原 genReply，若回覆偏離主題再重新生成一次
-  let reply = await _genReplyWithSemanticBase(combined, mode);
+  let reply = await _genReplyWithSemanticBase(combinedTopic, mode);
   let replyText = Array.isArray(reply) ? reply.map(m => m.text).join(" / ") : (reply[0]?.text || "");
 
   // 若模型答非所問，自動再生成一次
   if (!replyText.includes("大叔") && !replyText.includes("咻咻") && replyText.length < 8) {
     console.log("🔁 語意層重新生成（疑似偏離主題）");
-    reply = await _genReplyWithSemanticBase(`${combined}（請更貼近對話語意回答）`, mode);
+    reply = await _genReplyWithSemanticBase(`${combinedTopic}（請更貼近對話語意回答）`, mode);
   }
 
   return reply;
