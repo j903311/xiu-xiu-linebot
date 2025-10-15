@@ -5,6 +5,120 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import fetch from 'node-fetch';
 import Parser from 'rss-parser';
+
+// ======= Google Cloud Memory Integration (Drive + Sheets Hybrid) =======
+import { google } from 'googleapis';
+
+let drive, sheets;
+try {
+  const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+  const auth = new google.auth.GoogleAuth({
+    credentials: serviceAccount,
+    scopes: [
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/spreadsheets'
+    ],
+  });
+  drive = google.drive({ version: 'v3', auth });
+  sheets = google.sheets({ version: 'v4', auth });
+  console.log("✅ Connected to Google APIs for memory sync.");
+} catch (err) {
+  console.error("❌ Failed to init Google APIs:", err.message);
+}
+
+const DRIVE_FOLDER_NAME = "咻咻記憶備份";
+const SHEET_NAME = "咻咻回憶日誌";
+let driveFolderId = null;
+let sheetId = null;
+
+// 取得或建立 Drive 資料夾
+async function ensureDriveFolder() {
+  if (driveFolderId) return driveFolderId;
+  const res = await drive.files.list({
+    q: `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id, name)',
+  });
+  if (res.data.files.length > 0) {
+    driveFolderId = res.data.files[0].id;
+  } else {
+    const folder = await drive.files.create({
+      requestBody: { name: DRIVE_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
+      fields: 'id',
+    });
+    driveFolderId = folder.data.id;
+  }
+  return driveFolderId;
+}
+
+// 取得或建立 Google Sheet
+async function ensureSheet() {
+  if (sheetId) return sheetId;
+  const res = await drive.files.list({
+    q: `name='${SHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+    fields: 'files(id, name)',
+  });
+  if (res.data.files.length > 0) {
+    sheetId = res.data.files[0].id;
+  } else {
+    const sheet = await sheets.spreadsheets.create({
+      requestBody: {
+        properties: { title: SHEET_NAME },
+        sheets: [{ properties: { title: '記憶摘要' } }],
+      },
+    });
+    sheetId = sheet.data.spreadsheetId;
+  }
+  return sheetId;
+}
+
+// 上傳 memory.json 到 Drive
+async function uploadMemoryToDrive() {
+  try {
+    await ensureDriveFolder();
+    const fileMetadata = {
+      name: `memory_${new Date().toISOString().split('T')[0]}.json`,
+      parents: [driveFolderId],
+    };
+    const media = { mimeType: 'application/json', body: fs.createReadStream('./memory.json') };
+    await drive.files.create({ requestBody: fileMetadata, media });
+    console.log('☁️ Memory uploaded to Google Drive');
+  } catch (err) {
+    console.error('❌ Failed to upload memory to Drive:', err.message);
+  }
+}
+
+// 寫入記憶摘要到 Sheets
+async function appendMemorySummary(summaryText, emotion="一般") {
+  try {
+    await ensureSheet();
+    const date = new Date().toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: '記憶摘要!A:C',
+      valueInputOption: 'RAW',
+      requestBody: { values: [[date, summaryText, emotion]] },
+    });
+    console.log('📝 Memory summary appended to Sheets');
+  } catch (err) {
+    console.error('❌ Failed to append to Sheets:', err.message);
+  }
+}
+
+// 每次 saveMemory 時觸發雲端同步
+const _origSaveMemory = saveMemory;
+saveMemory = function(memory) {
+  _origSaveMemory(memory);
+  try {
+    const latest = memory[memory.length - 1];
+    if (latest && typeof latest.text === "string") {
+      appendMemorySummary(latest.text, latest.emotion || "一般");
+    }
+    uploadMemoryToDrive();
+  } catch(e) {
+    console.error("⚠️ Cloud sync error:", e.message);
+  }
+};
+
 process.env.TZ = "Asia/Taipei";
 const parser = new Parser();
 // ======= 搜尋功能（簡短＋隨機女友語氣，移除機器人口吻） =======
