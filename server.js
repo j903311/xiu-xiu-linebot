@@ -1,21 +1,26 @@
 import 'dotenv/config';
 
-// ======= Google 雲端記憶同步模組 =======
+// ======= Google 雲端記憶同步模組（OAuth 個人帳號版） =======
 import { google } from 'googleapis';
 
 let driveClient = null;
+const DRIVE_FOLDER_NAME = process.env.GOOGLE_DRIVE_FOLDER_NAME || '咻咻記憶同步';
 
 async function initGoogleDrive() {
   try {
-    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-    const auth = new google.auth.GoogleAuth({
-      credentials: creds,
-      scopes: ['https://www.googleapis.com/auth/drive.file'],
-    });
-    driveClient = google.drive({ version: 'v3', auth });
-    console.log('✅ 已連線至 Google Drive');
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+    if (!clientId || !clientSecret || !refreshToken) {
+      console.warn('⚠️ 缺少 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN，已跳過雲端同步初始化');
+      return;
+    }
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+    driveClient = google.drive({ version: 'v3', auth: oauth2Client });
+    console.log('✅ 已以 OAuth 模式連線至 Google Drive（個人帳號）');
   } catch (err) {
-    console.error('❌ 無法初始化 Google Drive:', err.message);
+    console.error('❌ 無法初始化 Google Drive (OAuth):', err?.response?.data || err.message);
   }
 }
 
@@ -25,8 +30,10 @@ async function ensureFolderExists(folderName) {
     const res = await driveClient.files.list({
       q: `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`,
       fields: 'files(id, name)',
+      pageSize: 1,
+      spaces: 'drive',
     });
-    if (res.data.files.length > 0) return res.data.files[0].id;
+    if (res.data.files && res.data.files.length > 0) return res.data.files[0].id;
     const folder = await driveClient.files.create({
       requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
       fields: 'id',
@@ -34,7 +41,7 @@ async function ensureFolderExists(folderName) {
     console.log('📁 已建立雲端資料夾:', folderName);
     return folder.data.id;
   } catch (err) {
-    console.error('❌ 建立或取得資料夾失敗:', err.message);
+    console.error('❌ 建立/取得資料夾失敗:', err?.response?.data || err.message);
     return null;
   }
 }
@@ -42,43 +49,37 @@ async function ensureFolderExists(folderName) {
 async function uploadMemoryToDrive() {
   if (!driveClient) return;
   try {
-    const folderId = process.env.GOOGLE_DRIVE_PARENT_ID || await ensureFolderExists('咻咻記憶同步');
+    const folderId = await ensureFolderExists(DRIVE_FOLDER_NAME);
     if (!folderId) return;
     const today = new Date().toISOString().slice(0, 10);
     const historyName = `memory_${today}.json`;
 
-    // 上傳即時版
     await driveClient.files.create({
       requestBody: { name: 'xiu_xiu_memory_backup.json', parents: [folderId], mimeType: 'application/json' },
       media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
+      fields: 'id',
     });
-    console.log('☁️ 咻咻記憶已同步至 Google Drive（咻咻記憶同步）');
+    console.log(`☁️ 咻咻記憶已同步至 Google Drive（${DRIVE_FOLDER_NAME}）`);
 
-    // 上傳每日歷史版
     await driveClient.files.create({
       requestBody: { name: historyName, parents: [folderId], mimeType: 'application/json' },
       media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
+      fields: 'id',
     });
     console.log('🗓️ 已備份每日歷史記憶:', historyName);
   } catch (err) {
-    console.error('❌ 上傳雲端記憶失敗:', err.message);
+    console.error('❌ 上傳雲端記憶失敗:', err?.response?.data || err.message);
   }
 }
 
-// 每日自動備份
 setInterval(async () => {
   const now = new Date();
   if (now.getHours() === 3 && now.getMinutes() === 0) {
     await uploadMemoryToDrive();
   }
-}, 60000);
+}, 60 * 1000);
 
-// 啟動 Google Drive
 await initGoogleDrive();
-
-
-
-
 
 
 import express from 'express';
@@ -188,6 +189,7 @@ function loadMemory() {
 }
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+  uploadMemoryToDrive(); // OAuth 雲端同步
   uploadMemoryToDrive(); // 雲端同步
   uploadMemoryToDrive(); // 雲端同步
 }
