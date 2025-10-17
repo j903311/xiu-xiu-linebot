@@ -190,6 +190,7 @@ function loadMemory() {
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
   uploadMemoryToDrive(); // OAuth 雲端同步
+  uploadMemoryToDrive(); // OAuth 雲端同步
   uploadMemoryToDrive(); // 雲端同步
   uploadMemoryToDrive(); // 雲端同步
 }
