@@ -74,7 +74,7 @@ async function uploadMemoryToDrive() {
 
 setInterval(async () => {
   const now = new Date();
-  if (now.getHours() === 3 && now.getMinutes() === 0) {
+  if (now.getHours() === 9 && now.getMinutes() === 0) {
     await uploadMemoryToDrive();
   }
 }, 60 * 1000);
