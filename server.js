@@ -1,4 +1,86 @@
 import 'dotenv/config';
+
+// ======= Google 雲端記憶同步模組 =======
+import { google } from 'googleapis';
+
+let driveClient = null;
+
+// 初始化 Google Drive
+async function initGoogleDrive() {
+  try {
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+    const auth = new google.auth.GoogleAuth({
+      credentials: creds,
+      scopes: ['https://www.googleapis.com/auth/drive.file'],
+    });
+    const drive = google.drive({ version: 'v3', auth });
+    driveClient = drive;
+    console.log('✅ 已連線至 Google Drive');
+  } catch (err) {
+    console.error('❌ 無法初始化 Google Drive:', err.message);
+  }
+}
+
+// 確保資料夾存在
+async function ensureFolderExists(folderName) {
+  if (!driveClient) return null;
+  try {
+    const res = await driveClient.files.list({
+      q: `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`,
+      fields: 'files(id, name)',
+    });
+    if (res.data.files.length > 0) return res.data.files[0].id;
+    const folder = await driveClient.files.create({
+      requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
+      fields: 'id',
+    });
+    console.log('📁 已建立雲端資料夾:', folderName);
+    return folder.data.id;
+  } catch (err) {
+    console.error('❌ 建立或取得資料夾失敗:', err.message);
+    return null;
+  }
+}
+
+// 上傳記憶檔案
+async function uploadMemoryToDrive() {
+  if (!driveClient) return;
+  try {
+    const folderId = await ensureFolderExists('XiuXiu_Memory_Backup');
+    if (!folderId) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const historyName = `memory_${today}.json`;
+
+    // 上傳即時版（覆蓋）
+    await driveClient.files.create({
+      requestBody: { name: 'xiu_xiu_memory_backup.json', parents: [folderId], mimeType: 'application/json' },
+      media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
+    });
+    console.log('☁️ 已同步最新版記憶到雲端');
+
+    // 上傳每日歷史版
+    await driveClient.files.create({
+      requestBody: { name: historyName, parents: [folderId], mimeType: 'application/json' },
+      media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
+    });
+    console.log('🗓️ 已備份每日歷史記憶:', historyName);
+  } catch (err) {
+    console.error('❌ 上傳雲端記憶失敗:', err.message);
+  }
+}
+
+// 每日自動備份
+setInterval(async () => {
+  const now = new Date();
+  if (now.getHours() === 3 && now.getMinutes() === 0) {
+    await uploadMemoryToDrive();
+  }
+}, 60000);
+
+// 啟動 Google Drive
+await initGoogleDrive();
+
+
 import express from 'express';
 import { Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
@@ -106,6 +188,7 @@ function loadMemory() {
 }
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+  uploadMemoryToDrive(); // 雲端同步
 }
 async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
