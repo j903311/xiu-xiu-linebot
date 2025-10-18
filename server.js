@@ -189,10 +189,16 @@ function loadMemory() {
 }
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
-  uploadMemoryToDrive(); // OAuth 雲端同步
-  uploadMemoryToDrive(); // OAuth 雲端同步
-  uploadMemoryToDrive(); // 雲端同步
-  uploadMemoryToDrive(); // 雲端同步
+
+  // ✅ 單次上傳 + 錯誤保護 + 日誌提示
+  (async () => {
+    try {
+      await uploadMemoryToDrive();
+      console.log("☁️ 記憶備份成功！");
+    } catch (err) {
+      console.error("❌ 記憶備份失敗：", err.message);
+    }
+  })();
 }
 async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
