@@ -179,6 +179,7 @@ function delay(ms) {
 
 // ======= 長期記憶（含人物卡）=======
 const MEMORY_FILE = './memory.json';
+let syncLock = false; // 🔒 同步鎖，防止刪記憶時雲端覆蓋
 function loadMemory() {
   try {
     const data = fs.readFileSync(MEMORY_FILE, 'utf-8');
@@ -188,14 +189,21 @@ function loadMemory() {
   }
 }
 function saveMemory(memory) {
+  if (syncLock) {
+    console.log("🔒 正在刪除記憶，暫停雲端同步");
+    fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+    return;
+  }
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
-
-  // ✅ 單次上傳 + 錯誤保護 + 日誌提示
   (async () => {
     try {
       await uploadMemoryToDrive();
       console.log("☁️ 記憶備份成功！");
     } catch (err) {
+      console.error("❌ 記憶備份失敗：", err.message);
+    }
+  })();
+} catch (err) {
       console.error("❌ 記憶備份失敗：", err.message);
     }
   })();
@@ -527,6 +535,28 @@ app.post('/webhook', async (req, res) => {
           
           // === 🆕 新增：刪掉長期記憶 ===
           if (userText.startsWith("刪掉記憶：")) {
+  const item = userText.replace("刪掉記憶：", "").trim();
+  syncLock = true; // 🔒 鎖定同步
+  let memory = loadMemory();
+  let logs = memory.logs || [];
+  const before = logs.length;
+
+  // 模糊比對刪除
+  logs = logs.filter(m => !m.text.includes(item));
+  memory.logs = logs;
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+
+  await safeReplyMessage(ev.replyToken, [
+    { type: "text", text: before === logs.length ? `找不到記憶：「${item}」` : `已刪除記憶：「${item}」` }
+  ]);
+
+  setTimeout(async () => {
+    syncLock = false; // 🔓 解鎖
+    await uploadMemoryToDrive();
+    console.log("☁️ 刪除後記憶已重新同步雲端");
+  }, 10000);
+  continue;
+}：")) {
             const item = userText.replace("刪掉記憶：", "").trim();
             let memory = loadMemory();
             let logs = memory.logs || [];
