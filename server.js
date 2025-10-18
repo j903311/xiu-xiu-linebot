@@ -1,44 +1,3 @@
-
-// === 🧠 智慧同步：比對雲端與本地版本 ===
-async function smartSyncMemory() {
-  try {
-    if (!fs.existsSync(MEMORY_FILE)) {
-      console.log("📂 本地沒有記憶，下載雲端版本...");
-      await downloadLatestMemoryFromDrive();
-      return;
-    }
-
-    const local = loadMemory();
-    const driveMeta = await getDriveMemoryMetadata(); // 需回傳 modifiedTime + version
-    if (!driveMeta) {
-      console.log("☁️ 找不到雲端檔案，略過下載。");
-      return;
-    }
-
-    const localTime = fs.statSync(MEMORY_FILE).mtime.getTime();
-    const driveTime = new Date(driveMeta.modifiedTime).getTime();
-    const localVer = local.version || 0;
-    const driveVer = driveMeta.version || 0;
-
-    if (localVer > driveVer || localTime > driveTime) {
-      console.log("💾 本地版本較新 → 上傳雲端");
-      await uploadMemoryToDrive();
-    } else if (driveVer > localVer || driveTime > localTime) {
-      console.log("☁️ 雲端版本較新 → 下載覆蓋本地");
-      await downloadLatestMemoryFromDrive();
-    } else {
-      console.log("📂 雲端與本地版本一致 → 不需同步");
-    }
-  } catch (err) {
-    console.error("❌ 智慧同步發生錯誤：", err.message);
-  }
-}
-
-// 啟動時執行智慧同步
-(async () => {
-  await smartSyncMemory();
-})();
-
 import 'dotenv/config';
 
 // ======= Google 雲端記憶同步模組（OAuth 個人帳號版） =======
@@ -232,11 +191,9 @@ function loadMemory() {
 function saveMemory(memory) {
   if (syncLock) {
     console.log("🔒 正在刪除記憶，暫停雲端同步");
-    memory.version = Date.now();
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+    fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
     return;
   }
-  memory.version = Date.now();
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
   (async () => {
     try {
@@ -245,8 +202,12 @@ function saveMemory(memory) {
     } catch (err) {
       console.error("❌ 記憶備份失敗：", err.message);
     }
-  }
-
+  })();
+} catch (err) {
+      console.error("❌ 記憶備份失敗：", err.message);
+    }
+  })();
+}
 async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
   if (keywords.some(k => userText.includes(k))) {
@@ -583,7 +544,6 @@ app.post('/webhook', async (req, res) => {
   // 模糊比對刪除
   logs = logs.filter(m => !m.text.includes(item));
   memory.logs = logs;
-  memory.version = Date.now();
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
 
   await safeReplyMessage(ev.replyToken, [
@@ -596,7 +556,7 @@ app.post('/webhook', async (req, res) => {
     console.log("☁️ 刪除後記憶已重新同步雲端");
   }, 10000);
   continue;
-}
+}：")) {
             const item = userText.replace("刪掉記憶：", "").trim();
             let memory = loadMemory();
             let logs = memory.logs || [];
