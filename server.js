@@ -179,25 +179,7 @@ function delay(ms) {
 
 // ======= 長期記憶（含人物卡）=======
 const MEMORY_FILE = './memory.json';
-let syncLock = typeof syncLock !== 'undefined' ? syncLock : false; // 🔒 同步鎖
-
-// ⚡ 批次上傳：避免每次寫入都觸發雲端上傳，合併為 10 秒內最多一次
-let uploadPending = false;
-function scheduleUpload() {
-  if (uploadPending) return;
-  uploadPending = true;
-  setTimeout(async () => {
-    uploadPending = false;
-    try {
-      await uploadMemoryToDrive();
-      console.log("☁️ 批次備份完成（10 秒節流）");
-    } catch (e) {
-      console.error("❌ 批次備份失敗：", e?.message || e);
-    }
-  }, 10000);
-}
-
-let syncLock = false; // 🔒 同步鎖，防止刪記憶時雲端覆蓋
+if (typeof globalThis.syncLock === 'undefined') globalThis.syncLock = false; // 🔒 同步鎖安全宣告
 function loadMemory() {
   try {
     const data = fs.readFileSync(MEMORY_FILE, 'utf-8');
@@ -207,22 +189,20 @@ function loadMemory() {
   }
 }
 function saveMemory(memory) {
-  try {
-    // 先寫入檔案（附帶版本號），確保本地一定更新
-    memory.version = Date.now();
+  if (syncLock) {
+    console.log("🔒 正在刪除記憶，暫停雲端同步");
     fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
-
-    // 若在刪除流程上鎖中，就先跳過雲端上傳（避免競爭覆蓋）
-    if (syncLock) {
-      console.log("🔒 正在刪除記憶，暫停雲端同步（稍後由排程上傳）");
-      return;
-    }
-
-    // 使用批次上傳（10 秒節流），避免每次都直上雲端造成延遲
-    scheduleUpload();
-  } catch (err) {
-    console.error("❌ saveMemory 寫入錯誤：", err?.message || err);
+    return;
   }
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+  (async () => {
+    try {
+      await uploadMemoryToDrive();
+      console.log("☁️ 記憶備份成功！");
+    } catch (err) {
+      console.error("❌ 記憶備份失敗：", err.message);
+    }
+  })();
 } catch (err) {
       console.error("❌ 記憶備份失敗：", err.message);
     }
