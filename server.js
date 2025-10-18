@@ -246,11 +246,6 @@ function saveMemory(memory) {
       console.error("❌ 記憶備份失敗：", err.message);
     }
   })();
-} catch (err) {
-      console.error("❌ 記憶備份失敗：", err.message);
-    }
-  })();
-}
 async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
   if (keywords.some(k => userText.includes(k))) {
