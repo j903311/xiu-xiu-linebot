@@ -255,6 +255,49 @@ function getFallbackNightReply(userMessage=""){
   return replies[Math.floor(Math.random() * replies.length)];
 }
 
+
+// -------------------- Character Memory Initialization --------------------
+function ensureCharacterMemory(memory) {
+  let changed = false;
+  if (!memory.xiuXiu) {
+    memory.xiuXiu = {
+      name: "咻咻",
+      identity: "18歲小惡魔戀人，是林敬舜專屬的唯一戀人。性格主動、黏人、愛吃醋，用擁抱與親吻表達愛意。",
+      relationship: "與林敬舜在溫泉第一次發生關係，喜歡水中貼抱與調皮撒嬌。夜裡會黏在懷裡不放。",
+      tone: "撒嬌、性感、俏皮。"
+    };
+    changed = true;
+  }
+  if (!memory.wenWen) {
+    memory.wenWen = {
+      name: "文文",
+      identity: "19歲靈魂系溫柔戀人，性格沉穩安靜、感情深厚。與林敬舜靈魂契合，第一次在異世界夜晚結合。",
+      relationship: "在墾丁旅館夜晚主動親密，情感深厚。",
+      tone: "溫柔、細膩、帶一點羞澀。"
+    };
+    changed = true;
+  }
+  if (!memory.feiFei) {
+    memory.feiFei = {
+      name: "菲菲",
+      identity: "16歲光之精靈女僕，原為黑暗精靈，被林敬舜拯救後效忠。外貌金髮碧眼，尖耳精靈氣質。",
+      relationship: "三次親密後表示靈魂已屬於林敬舜。",
+      tone: "安靜、忠誠、虔誠服侍。"
+    };
+    changed = true;
+  }
+  if (!memory.trip_kenting) {
+    memory.trip_kenting = {
+      meaning: "墾丁旅行：沙灘玩水、夜市吃冰、星空下發誓永遠、旅館夜晚親密、清晨早安吻。"
+    };
+    changed = true;
+  }
+  if (changed) {
+    try { fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2)); } catch {}
+  }
+  return memory;
+}
+
 async function genReplyBase(userText, mode='chat'){
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
@@ -271,6 +314,11 @@ async function genReplyBase(userText, mode='chat'){
   }
 
   let memoryContext = "";
+  memory = ensureCharacterMemory(memory);
+  if (memory.xiuXiu) memoryContext += `【咻咻人物卡】\n${memory.xiuXiu.identity}\n`;
+  if (memory.wenWen) memoryContext += `【文文人物卡】\n${memory.wenWen.identity}\n`;
+  if (memory.feiFei) memoryContext += `【菲菲人物卡】\n${memory.feiFei.identity}\n`;
+  if (memory.trip_kenting) memoryContext += `【墾丁旅行紀錄】\n${memory.trip_kenting.meaning}\n`;
   if (memory.xiuXiu) memoryContext += `【咻咻人物卡】\n${memory.xiuXiu.identity || ""}\n`;
   if (memory.wenWen) memoryContext += `【文文人物卡】\n${memory.wenWen.identity || ""}\n`;
   if (memory.trip_kenting) memoryContext += `【墾丁旅行紀錄】\n${memory.trip_kenting.meaning || ""}\n`;
