@@ -245,7 +245,8 @@ function saveMemory(memory) {
     } catch (err) {
       console.error("❌ 記憶備份失敗：", err.message);
     }
-  })();
+  }
+
 async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
   if (keywords.some(k => userText.includes(k))) {
@@ -595,7 +596,7 @@ app.post('/webhook', async (req, res) => {
     console.log("☁️ 刪除後記憶已重新同步雲端");
   }, 10000);
   continue;
-}：")) {
+}
             const item = userText.replace("刪掉記憶：", "").trim();
             let memory = loadMemory();
             let logs = memory.logs || [];
