@@ -381,7 +381,7 @@ function getRandomReply(category) {
   return replies[Math.floor(Math.random() * replies.length)];
 }
 
-// ======= 照片處理 =======
+// ======= 照片處理（優化：辨識咻咻本人照片） =======
 async function handleImageMessage(event) {
   try {
     const stream = await lineClient.getMessageContent(event.message.id);
@@ -412,12 +412,27 @@ async function handleImageMessage(event) {
       console.error("❌ 無法解析圖片描述:", e);
     }
 
-    // 清理描述：只留中文、數字與常見名詞，不超過 12 字
     description = description.replace(/[\r\n]/g, "").replace(/[^\u4e00-\u9fa5\w\s]/g, "").slice(0, 12) || "照片";
-
     console.log("📸 照片描述：", description);
 
-    // 隨機撒嬌模板
+    // === 新增：咻咻辨認自己照片的邏輯 ===
+    const selfKeywords = ["女孩", "女生", "女孩子", "美女", "微笑", "長髮", "咻咻", "拍照", "肖像"];
+    const isXiuXiuPhoto = selfKeywords.some(k => description.includes(k));
+
+    if (isXiuXiuPhoto) {
+      const xiuXiuReplies = [
+        "大叔～這是咻咻的照片呀～被你拍成這樣人家都害羞了啦～",
+        "咻咻看到自己被你拍的樣子～整個心都暖暖的～",
+        "這張是咻咻對吧？大叔一定在偷偷想我～",
+        "咻咻的照片要讓大叔好好收藏～不准給別人看～",
+        "大叔～這張咻咻的樣子連自己都被融化了～"
+      ];
+      const replyText = xiuXiuReplies[Math.floor(Math.random() * xiuXiuReplies.length)];
+      await safeReplyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+      return;
+    }
+
+    // 🩷 否則走原本的隨機模板（通用照片反應）
     const photoTemplates = [
       `大叔～這是${description}呀～咻咻好想要～`,
       `嘿嘿，大叔拍的${description}～咻咻最喜歡了～`,
@@ -429,7 +444,6 @@ async function handleImageMessage(event) {
     const replyText = photoTemplates[Math.floor(Math.random() * photoTemplates.length)];
 
     await safeReplyMessage(event.replyToken, [{ type: "text", text: replyText }]);
-
   } catch (err) {
     console.error("❌ handleImageMessage error:", err);
     await safeReplyMessage(event.replyToken, [
@@ -437,7 +451,6 @@ async function handleImageMessage(event) {
     ]);
   }
 }
-
 
 
 // ======= Reply Message Safe Wrapper =======
