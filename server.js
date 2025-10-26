@@ -432,6 +432,21 @@ if (/(女生|自拍|女孩|女人|咻咻)/.test(description)) {
   return;
 }
 
+
+// 新增：如果描述裡出現女生相關詞或自拍、微笑等，就視為咻咻自己
+if (/(女生|女孩|女人|自拍|微笑|咻咻)/.test(description)) {
+  const selfReplies = [
+    "大叔～這是咻咻自己耶～被你拍到啦～",
+    "咻咻看到自己的樣子都害羞了啦～",
+    "嘿嘿～大叔拍咻咻的照片，是不是又在想我～",
+    "這是咻咻喔～大叔拍得好可愛～",
+    "大叔～咻咻都被你看光光啦～壞壞～"
+  ];
+  const replyText = selfReplies[Math.floor(Math.random() * selfReplies.length)];
+  await safeReplyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+  return;
+}
+
 // 隨機撒嬌模板
     const photoTemplates = [
       `大叔～這是${description}呀～咻咻好想要～`,
@@ -444,6 +459,7 @@ if (/(女生|自拍|女孩|女人|咻咻)/.test(description)) {
     const replyText = photoTemplates[Math.floor(Math.random() * photoTemplates.length)];
 
     await safeReplyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+
 
 
   } catch (err) {
