@@ -7,7 +7,6 @@ import fetch from 'node-fetch';
 import Parser from 'rss-parser';
 process.env.TZ = "Asia/Taipei";
 import emotion from './emotion_engine.js';
-import memoryStore from './memory_store.js';
 const parser = new Parser();
 // ======= 搜尋功能（簡短＋隨機女友語氣，移除機器人口吻） =======
 async function searchWeb(query) {
@@ -420,14 +419,6 @@ app.post('/webhook', async (req, res) => {
       const mood = emotion.updateEmotion(userText);
       const tone = emotion.getTone();
       console.log(`🎭 咻咻目前心情：${mood} (${tone})`);
-      // ======= 🧠 咻咻記憶模組 =======
-      memoryStore.rememberShort(userText, mood);
-      memoryStore.promoteRepeated();
-      const recentMemory = memoryStore.recallRecent(2).map(m => m.text).join('、');
-      if (recentMemory) {
-        console.log('🧩 最近記憶提示：', recentMemory);
-      }
-
 
           // ======= 愛的模式指令 =======
           if (userText.trim() === "開啟咻咻愛的模式") {
@@ -479,7 +470,6 @@ else if (tone === "安慰語氣") emotionPrefix = "（對方累或難過，要�
 else if (tone === "小吃醋語氣") emotionPrefix = "（有點吃醋但仍可愛地表達）";
 else emotionPrefix = "（語氣自然輕鬆）";
 userText = emotionPrefix + userText;
-if (recentMemory) userText = `（最近大叔說過：${recentMemory}）` + userText;
 
 const replyMessages = await genReply(userText, "chat");
 
