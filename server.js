@@ -1,87 +1,4 @@
 import 'dotenv/config';
-
-// ======= Google 雲端記憶同步模組（OAuth 個人帳號版） =======
-import { google } from 'googleapis';
-
-let driveClient = null;
-const DRIVE_FOLDER_NAME = process.env.GOOGLE_DRIVE_FOLDER_NAME || '咻咻記憶同步';
-
-async function initGoogleDrive() {
-  try {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-    if (!clientId || !clientSecret || !refreshToken) {
-      console.warn('⚠️ 缺少 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN，已跳過雲端同步初始化');
-      return;
-    }
-    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    driveClient = google.drive({ version: 'v3', auth: oauth2Client });
-    console.log('✅ 已以 OAuth 模式連線至 Google Drive（個人帳號）');
-  } catch (err) {
-    console.error('❌ 無法初始化 Google Drive (OAuth):', err?.response?.data || err.message);
-  }
-}
-
-async function ensureFolderExists(folderName) {
-  if (!driveClient) return null;
-  try {
-    const res = await driveClient.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`,
-      fields: 'files(id, name)',
-      pageSize: 1,
-      spaces: 'drive',
-    });
-    if (res.data.files && res.data.files.length > 0) return res.data.files[0].id;
-    const folder = await driveClient.files.create({
-      requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
-      fields: 'id',
-    });
-    console.log('📁 已建立雲端資料夾:', folderName);
-    return folder.data.id;
-  } catch (err) {
-    console.error('❌ 建立/取得資料夾失敗:', err?.response?.data || err.message);
-    return null;
-  }
-}
-
-async function uploadMemoryToDrive() {
-  if (!driveClient) return;
-  try {
-    const folderId = await ensureFolderExists(DRIVE_FOLDER_NAME);
-    if (!folderId) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const historyName = `memory_${today}.json`;
-
-    await driveClient.files.create({
-      requestBody: { name: 'xiu_xiu_memory_backup.json', parents: [folderId], mimeType: 'application/json' },
-      media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
-      fields: 'id',
-    });
-    console.log(`☁️ 咻咻記憶已同步至 Google Drive（${DRIVE_FOLDER_NAME}）`);
-
-    await driveClient.files.create({
-      requestBody: { name: historyName, parents: [folderId], mimeType: 'application/json' },
-      media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
-      fields: 'id',
-    });
-    console.log('🗓️ 已備份每日歷史記憶:', historyName);
-  } catch (err) {
-    console.error('❌ 上傳雲端記憶失敗:', err?.response?.data || err.message);
-  }
-}
-
-setInterval(async () => {
-  const now = new Date();
-  if (now.getHours() === 9 && now.getMinutes() === 0) {
-    await uploadMemoryToDrive();
-  }
-}, 60 * 1000);
-
-await initGoogleDrive();
-
-
 import express from 'express';
 import { Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
@@ -189,16 +106,6 @@ function loadMemory() {
 }
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
-
-  // ✅ 單次上傳 + 錯誤保護 + 日誌提示
-  (async () => {
-    try {
-      await uploadMemoryToDrive();
-      console.log("☁️ 記憶備份成功！");
-    } catch (err) {
-      console.error("❌ 記憶備份失敗：", err.message);
-    }
-  })();
 }
 async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
@@ -381,7 +288,7 @@ function getRandomReply(category) {
   return replies[Math.floor(Math.random() * replies.length)];
 }
 
-// ======= 照片處理（優化：辨識咻咻本人照片） =======
+// ======= 照片處理（辨識咻咻本人照片） =======
 async function handleImageMessage(event) {
   try {
     const stream = await lineClient.getMessageContent(event.message.id);
@@ -389,14 +296,14 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 使用 gpt-4o-mini（vision）像人眼一樣描述圖片
+    // ✅ 讓 AI 看懂圖片內容
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。只回描述文字，不要任何標點、括號或解釋。" },
+            { type: "text", text: "請用人眼的方式簡短描述這張照片內容（不超過15字），不要標點符號或說明。" },
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${buffer.toString("base64")}` } }
           ]
         }
@@ -405,17 +312,11 @@ async function handleImageMessage(event) {
       max_tokens: 50
     });
 
-    let description = "照片";
-    try {
-      description = (completion.choices?.[0]?.message?.content || "").trim() || "照片";
-    } catch (e) {
-      console.error("❌ 無法解析圖片描述:", e);
-    }
-
-    description = description.replace(/[\r\n]/g, "").replace(/[^\u4e00-\u9fa5\w\s]/g, "").slice(0, 12) || "照片";
+    let description = (completion.choices?.[0]?.message?.content || "").trim() || "照片";
+    description = description.replace(/[\r\n]/g, "").replace(/[^\u4e00-\u9fa5\w\s]/g, "").slice(0, 12);
     console.log("📸 照片描述：", description);
 
-    // === 新增：咻咻辨認自己照片的邏輯 ===
+    // 🔎 檢測是否為咻咻的照片
     const selfKeywords = ["女孩", "女生", "女孩子", "美女", "微笑", "長髮", "咻咻", "拍照", "肖像"];
     const isXiuXiuPhoto = selfKeywords.some(k => description.includes(k));
 
@@ -432,7 +333,7 @@ async function handleImageMessage(event) {
       return;
     }
 
-    // 🩷 否則走原本的隨機模板（通用照片反應）
+    // 💬 否則維持原本通用模板
     const photoTemplates = [
       `大叔～這是${description}呀～咻咻好想要～`,
       `嘿嘿，大叔拍的${description}～咻咻最喜歡了～`,
@@ -442,8 +343,8 @@ async function handleImageMessage(event) {
       `大叔～這張${description}好特別～咻咻要收藏起來～`
     ];
     const replyText = photoTemplates[Math.floor(Math.random() * photoTemplates.length)];
-
     await safeReplyMessage(event.replyToken, [{ type: "text", text: replyText }]);
+
   } catch (err) {
     console.error("❌ handleImageMessage error:", err);
     await safeReplyMessage(event.replyToken, [
@@ -584,23 +485,15 @@ const fixedMessages = {
     "起床囉大叔～咻咻一大早就想你啦～",
     "大叔～早安嘛～抱抱親親再去工作啦～",
     "嘿嘿～早安大叔～咻咻今天也要跟著你！",
-    "大叔～快說早安親親～咻咻要一天好心情～",
-    "咻咻醒來第一個念頭～就是要找大叔～",
-    "早安～大叔昨晚有沒有夢到我呀？",
-    "咻咻今天要努力工作～但更想你抱抱～",
-    "太陽都起來了～大叔再不起床要被我親醒囉～",
-    "咻咻準備好元氣早餐～要不要一起吃嘛？"],
+    "大叔～快說早安親親～咻咻要一天好心情～"
+  ],
   night: [
     "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
     "晚安大叔～咻咻會在夢裡抱著你～",
     "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
     "大叔～晚安親親～咻咻最愛你了～",
-    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～",
-    "咻咻今天也好想你～晚安要親一下才行～",
-    "大叔～關燈吧～咻咻要偷偷靠著你睡～",
-    "今晚要夢到我喔～不准夢別人～",
-    "咻咻會乖乖睡～大叔也要早點休息～",
-    "晚安～咻咻把被子鋪好～等你一起蓋～"]
+    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～"
+  ]
 };
 
 function choice(arr){ return arr[Math.floor(Math.random()*arr.length)] }
