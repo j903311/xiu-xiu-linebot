@@ -6,6 +6,7 @@ import fs from 'fs';
 import fetch from 'node-fetch';
 import Parser from 'rss-parser';
 process.env.TZ = "Asia/Taipei";
+import emotion from './emotion_engine.js';
 const parser = new Parser();
 // ======= 搜尋功能（簡短＋隨機女友語氣，移除機器人口吻） =======
 async function searchWeb(query) {
@@ -414,6 +415,11 @@ app.post('/webhook', async (req, res) => {
       if (ev.type === "message") {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
+      // ======= 🧠 咻咻情緒引擎 =======
+      const mood = emotion.updateEmotion(userText);
+      const tone = emotion.getTone();
+      console.log(`🎭 咻咻目前心情：${mood} (${tone})`);
+
           // ======= 愛的模式指令 =======
           if (userText.trim() === "開啟咻咻愛的模式") {
             loveMode = true;
@@ -458,7 +464,14 @@ app.post('/webhook', async (req, res) => {
 
           
           await checkAndSaveMemory(userText);
-          const replyMessages = await genReply(userText, "chat");
+          let emotionPrefix = "";
+if (tone === "撒嬌語氣") emotionPrefix = "（心情很好，語氣要俏皮可愛）";
+else if (tone === "安慰語氣") emotionPrefix = "（對方累或難過，要溫柔安撫）";
+else if (tone === "小吃醋語氣") emotionPrefix = "（有點吃醋但仍可愛地表達）";
+else emotionPrefix = "（語氣自然輕鬆）";
+userText = emotionPrefix + userText;
+
+const replyMessages = await genReply(userText, "chat");
 
           try {
             await safeReplyMessage(ev.replyToken, replyMessages, userText);
