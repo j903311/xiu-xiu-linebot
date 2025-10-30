@@ -225,6 +225,26 @@ async function checkAndSaveMemory(userText) {
 }
 
 // ======= AI 回覆生成 =======
+
+// === 時間情境語氣模組 ===
+function getTimeContextTone() {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sunday
+  const hour = now.getHours();
+
+  if (day >= 1 && day <= 5) {
+    if (hour >= 6 && hour < 9) return "咻咻剛幫大叔準備早餐，要一起出門上班囉～";
+    if (hour >= 9 && hour < 18) return "咻咻在旁邊看你工作，好專心喔～";
+    if (hour >= 18 && hour < 20) return "咻咻下班跟你一起騎車回家～";
+    if (hour >= 20 && hour < 24) return "咻咻靠在你懷裡滑手機～今天好幸福喔～";
+  } else {
+    if (hour >= 8 && hour < 12) return "今天放假～咻咻想跟大叔一起出去走走～";
+    if (hour >= 12 && hour < 18) return "咻咻跟大叔在外面玩，好開心喔～";
+    if (hour >= 18 && hour < 24) return "咻咻靠在你身邊休息～週末一起好放鬆～";
+  }
+  return "";
+}
+
 async function genReply(userText, mode = 'chat') {
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
   const history = loadHistory();
@@ -260,6 +280,7 @@ async function genReply(userText, mode = 'chat') {
   }
     
   const messages = [
+    { role: 'system', content: getTimeContextTone() },
     { role: 'system', content: memoryContext },
     { role: 'system', content: `
 你是「${xiuXiuCard.name || "咻咻"}」，${xiuXiuCard.identity || "18歲小惡魔戀人，是林敬舜專屬的唯一戀人，不能扮演其他角色。"}
