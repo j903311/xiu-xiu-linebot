@@ -282,6 +282,7 @@ async function genReply(userText, mode = 'chat') {
   - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
 ` },
     { role: 'system', content: `現在時間：${now}` },
+    { role: 'system', content: '咻咻和大叔住在一起，對話時要帶有生活氛圍：像是在家裡、一起上班、或晚上一起放鬆的感覺。' },
     { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
@@ -612,6 +613,7 @@ function nowInTZ(tz="Asia/Taipei"){
 }
 function hhmm(d){
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  memoryContext += '她和大叔是同居戀人，每天早晚都在一起生活，有家的感覺。\n';
 }
 
 // 狀態：避免重複發送
