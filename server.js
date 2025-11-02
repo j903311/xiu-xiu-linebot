@@ -959,33 +959,9 @@ async function analyzeIntent(userText) {
 }
 
 // 包裝 genReply，加入語意層判斷
-
-// ===== 載入 daily_log.json =====
-import fs from 'fs';
-let dailyLog = {};
-try {
-  const path = './daily_log.json';
-  if (fs.existsSync(path)) {
-    const data = fs.readFileSync(path, 'utf8');
-    dailyLog = JSON.parse(data);
-    console.log('✅ daily_log.json 已載入');
-  } else {
-    console.log('⚠️ 未找到 daily_log.json，略過載入');
-  }
-} catch (err) {
-  console.error('❌ 讀取 daily_log.json 失敗：', err);
-}
-
 const _genReplyWithSemanticBase = genReply;
 genReply = async function(userText, mode = 'chat') {
-  
-  // === 注入 daily_log.json 內容 ===
-  const today = new Date().toISOString().split('T')[0];
-  const todayData = dailyLog.dailyLogs?.find(d => d.date === today);
-  const todaySummary = todayData ? `今日紀錄：${todayData.summary}（情緒：${todayData.mood}）` : '';
-  const contextText = todaySummary ? `${todaySummary}\n${userText}` : userText;
-  userText = contextText;
-const intent = await analyzeIntent(userText);
+  const intent = await analyzeIntent(userText);
   console.log("🧭 Semantic intent:", intent);
 
   const prefixMap = {
