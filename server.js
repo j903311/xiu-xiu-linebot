@@ -85,48 +85,11 @@ await initGoogleDrive();
 import express from 'express';
 import { Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import fetch from 'node-fetch';
 import Parser from 'rss-parser';
 process.env.TZ = "Asia/Taipei";
 const parser = new Parser();
-// ======= Gemini（Google AI）影像辨識模組：先 Gemini，失敗再 fallback OpenAI vision =======
-let _geminiModel = null;
-
-function getGeminiModel() {
-  const apiKey = process.env.GOOGLE_AI_API_KEY;
-  if (!apiKey) return null;
-  if (_geminiModel) return _geminiModel;
-  const genAI = new GoogleGenerativeAI(apiKey);
-  // gemini-1.5-flash：速度快、成本低、看圖/OCR 表現很夠用
-  _geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-  return _geminiModel;
-}
-
-function bufferToInlinePart(buffer, mimeType = 'image/jpeg') {
-  return {
-    inlineData: {
-      data: buffer.toString('base64'),
-      mimeType,
-    },
-  };
-}
-
-async function geminiShortDescribeImage(buffer) {
-  const model = getGeminiModel();
-  if (!model) throw new Error('GOOGLE_AI_API_KEY 未設定');
-  const prompt =
-    "請像人眼一樣描述這張照片的內容，繁體中文，簡短（不超過15字）。" +
-    "只回描述文字，不要任何標點、括號或解釋。";
-  const result = await model.generateContent([
-    prompt,
-    bufferToInlinePart(buffer, 'image/jpeg')
-  ]);
-  const text = result?.response?.text?.() || '';
-  return String(text).trim();
-}
-
 // ======= 搜尋功能（簡短＋隨機女友語氣，移除機器人口吻） =======
 async function searchWeb(query) {
   try {
@@ -427,38 +390,27 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 先用 Gemini（更擅長辨識/截圖文字），失敗再 fallback OpenAI vision
+    // ✅ 使用 gpt-4o-mini（vision）像人眼一樣描述圖片
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。只回描述文字，不要任何標點、括號或解釋。" },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${buffer.toString("base64")}` } }
+          ]
+        }
+      ],
+      temperature: 0.2,
+      max_tokens: 50
+    });
+
     let description = "照片";
     try {
-      const geminiDesc = await geminiShortDescribeImage(buffer);
-      if (geminiDesc) description = geminiDesc;
-      console.log("📸 Gemini 照片描述：", description);
+      description = (completion.choices?.[0]?.message?.content || "").trim() || "照片";
     } catch (e) {
-      console.warn("⚠️ Gemini 讀圖失敗，改用 OpenAI vision fallback：", e?.message || e);
-
-      // ✅ OpenAI fallback：使用 gpt-4o-mini（vision）像人眼一樣描述圖片
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "請像人眼一樣描述這張照片的內容，簡短中文描述（不超過15字）。只回描述文字，不要任何標點、括號或解釋。" },
-              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${buffer.toString("base64")}` } }
-            ]
-          }
-        ],
-        temperature: 0.2,
-        max_tokens: 50
-      });
-
-      try {
-        description = (completion.choices?.[0]?.message?.content || "").trim() || "照片";
-      } catch (err) {
-        console.error("❌ 無法解析圖片描述:", err);
-        description = "照片";
-      }
-      console.log("📸 OpenAI fallback 照片描述：", description);
+      console.error("❌ 無法解析圖片描述:", e);
     }
 
     // 清理描述：只留中文、數字與常見名詞，不超過 12 字
