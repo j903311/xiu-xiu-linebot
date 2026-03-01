@@ -620,11 +620,23 @@ function hhmm(d){
 let sentMarks = new Set();
 let randomPlan = { date: "", times: [] };
 
+// ✅ 固定推播：避免連續兩天抽到同一句
+let lastFixedSent = { morning: "", night: "" };
+
 async function fixedPush(type){
-  const text = choice(fixedMessages[type] || []);
+  const pool = fixedMessages[type] || [];
+  if (pool.length === 0) return;
+
+  // 盡量避開上一次同一句（最多嘗試 6 次）
+  let text = choice(pool);
+  for (let i = 0; i < 6 && text === lastFixedSent[type]; i++) {
+    text = choice(pool);
+  }
   if (!text) return;
+
   try {
     await pushToOwner([{ type: "text", text }]);
+    lastFixedSent[type] = text;
   } catch(e){
     console.error("❌ fixedPush failed:", e?.message || e);
   }
@@ -675,7 +687,25 @@ setInterval(async () => {
       for (const rt of randomPlan.times){
         const key = "rand:"+rt+":"+randomPlan.date;
         if (t === rt && !sentMarks.has(key)){
-          const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
+          // ✅ 白天隨機推播：不要固定一句，改成「生活事件 + 隨機互動提示」混合
+const mem = loadMemory();
+const life1 = (mem && mem.xiuXiu && Array.isArray(mem.xiuXiu.lifeEvents)) ? mem.xiuXiu.lifeEvents : [];
+const life2 = (mem && mem.xiuXiu_expanded_modules && Array.isArray(mem.xiuXiu_expanded_modules.lifeEvents_extended))
+  ? mem.xiuXiu_expanded_modules.lifeEvents_extended
+  : [];
+const randomPrompts = [
+  "今天突然想到大叔",
+  "剛剛發生一件小事",
+  "現在有點想撒嬌",
+  "有點無聊想找大叔聊天",
+  "突然很想抱抱",
+  "你現在在忙嗎",
+  "我想聽你講今天的事",
+  "我想黏你一下下"
+];
+const promptPool = [...life1, ...life2, ...randomPrompts].filter(Boolean);
+const prompt = choice(promptPool) || "今天突然想到大叔";
+const msgs = await genReply(prompt, "chat");
           try{
             await pushToOwner(msgs);
           }catch(e){
@@ -784,7 +814,7 @@ function genEmotionReply(emotion) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// ======= 修改 genReply 增加前置情緒回覆 =======
+// ======= 修改 genReply 增加前置情緒回覆（不截斷，混合 AI 延伸） =======
 const originalGenReply = genReply;
 genReply = async function(userText, mode = 'chat') {
   const emotion = analyzeEmotion(userText);
@@ -792,7 +822,31 @@ genReply = async function(userText, mode = 'chat') {
     const quick = genEmotionReply(emotion);
     if (quick) {
       console.log("💞 Emotion detected:", emotion);
-      return [{ type: 'text', text: quick }];
+
+      // ✅ 先回一段情緒安撫，再補一段 AI 延伸（避免每次都同一句）
+      try {
+        const follow = await originalGenReply(userText + "（延續剛剛的情緒，用不同句型再多說一點點，避免重複）", mode);
+
+        const arr = [];
+        arr.push({ type: 'text', text: quick });
+
+        // follow 可能是 LINE message array
+        if (Array.isArray(follow)) {
+          // 避免 follow 第一段又跟 quick 很像
+          const followTexts = follow
+            .map(m => (m && m.text ? String(m.text).trim() : ""))
+            .filter(Boolean)
+            .filter(t => t !== quick)
+            .slice(0, 2); // 最多補 2 句
+
+          for (const t of followTexts) arr.push({ type: "text", text: t });
+        }
+
+        // 至少回一則
+        return arr.length ? arr : [{ type: "text", text: quick }];
+      } catch (e) {
+        return [{ type: 'text', text: quick }];
+      }
     }
   }
   return await originalGenReply(userText, mode);
