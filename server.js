@@ -466,9 +466,9 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 使用 gpt-5（vision）像人眼一樣描述圖片
+    // ✅ 使用 gpt-4o（vision）像人眼一樣描述圖片
     const completion = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",
       messages: [
         {
           role: "user",
