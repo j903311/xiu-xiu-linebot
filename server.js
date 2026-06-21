@@ -120,7 +120,7 @@ async function searchWeb(query) {
 
     // Step 3: 沒有 RSS → 直接問 OpenAI
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages: [
         { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。請注意：1) 使用台灣常用口語，不要使用大陸用語。2) 每次回覆20~50字，分成1–3句，句型可隨機：陳述句、問句或動作描寫。3) 若有記憶，請自然融入，不要生硬。4) 偶爾加入一點猶豫或思考感，像真人在聊天。5) 絕對不要使用任何 emoji 或符號。" },
         { role: "user", content: `請幫我回答：「${query}」` }
@@ -366,7 +366,7 @@ async function genReply(userText, mode = 'chat') {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5',
       messages,
       temperature: 0.9,
       max_tokens: 180
@@ -466,9 +466,9 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 使用 gpt-4o（vision）像人眼一樣描述圖片
+    // ✅ 使用 gpt-5（vision）像人眼一樣描述圖片
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages: [
         {
           role: "user",
@@ -1016,7 +1016,7 @@ async function analyzeIntent(userText) {
     const strongOpenAI = new OpenAI({ apiKey: strongKey });
 
     const completion = await strongOpenAI.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages: [
         {
           role: "system",
