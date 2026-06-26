@@ -1,87 +1,4 @@
 import 'dotenv/config';
-
-// ======= Google 雲端記憶同步模組（OAuth 個人帳號版） =======
-import { google } from 'googleapis';
-
-let driveClient = null;
-const DRIVE_FOLDER_NAME = process.env.GOOGLE_DRIVE_FOLDER_NAME || '咻咻記憶同步';
-
-async function initGoogleDrive() {
-  try {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-    if (!clientId || !clientSecret || !refreshToken) {
-      console.warn('⚠️ 缺少 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN，已跳過雲端同步初始化');
-      return;
-    }
-    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    driveClient = google.drive({ version: 'v3', auth: oauth2Client });
-    console.log('✅ 已以 OAuth 模式連線至 Google Drive（個人帳號）');
-  } catch (err) {
-    console.error('❌ 無法初始化 Google Drive (OAuth):', err?.response?.data || err.message);
-  }
-}
-
-async function ensureFolderExists(folderName) {
-  if (!driveClient) return null;
-  try {
-    const res = await driveClient.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`,
-      fields: 'files(id, name)',
-      pageSize: 1,
-      spaces: 'drive',
-    });
-    if (res.data.files && res.data.files.length > 0) return res.data.files[0].id;
-    const folder = await driveClient.files.create({
-      requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
-      fields: 'id',
-    });
-    console.log('📁 已建立雲端資料夾:', folderName);
-    return folder.data.id;
-  } catch (err) {
-    console.error('❌ 建立/取得資料夾失敗:', err?.response?.data || err.message);
-    return null;
-  }
-}
-
-async function uploadMemoryToDrive() {
-  if (!driveClient) return;
-  try {
-    const folderId = await ensureFolderExists(DRIVE_FOLDER_NAME);
-    if (!folderId) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const historyName = `memory_${today}.json`;
-
-    await driveClient.files.create({
-      requestBody: { name: 'xiu_xiu_memory_backup.json', parents: [folderId], mimeType: 'application/json' },
-      media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
-      fields: 'id',
-    });
-    console.log(`☁️ 咻咻記憶已同步至 Google Drive（${DRIVE_FOLDER_NAME}）`);
-
-    await driveClient.files.create({
-      requestBody: { name: historyName, parents: [folderId], mimeType: 'application/json' },
-      media: { mimeType: 'application/json', body: fs.createReadStream(MEMORY_FILE) },
-      fields: 'id',
-    });
-    console.log('🗓️ 已備份每日歷史記憶:', historyName);
-  } catch (err) {
-    console.error('❌ 上傳雲端記憶失敗:', err?.response?.data || err.message);
-  }
-}
-
-setInterval(async () => {
-  const now = new Date();
-  if (now.getHours() === 9 && now.getMinutes() === 0) {
-    await uploadMemoryToDrive();
-  }
-}, 60 * 1000);
-
-await initGoogleDrive();
-
-
 import express from 'express';
 import { Client as LineClient } from '@line/bot-sdk';
 import OpenAI from 'openai';
@@ -107,7 +24,7 @@ async function searchWeb(query) {
     // Step 2: RSS 有 → 交給 OpenAI 總結
     if (rssResult) {
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。請注意：1) 使用台灣常用口語，不要使用大陸用語。2) 每次回覆20~50字，分成1–3句，句型可隨機：陳述句、問句或動作描寫。3) 若有記憶，請自然融入，不要生硬。4) 偶爾加入一點猶豫或思考感，像真人在聊天。5) 絕對不要使用任何 emoji 或符號。" },
           { role: "user", content: rssResult }
@@ -120,7 +37,7 @@ async function searchWeb(query) {
 
     // Step 3: 沒有 RSS → 直接問 OpenAI
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。請注意：1) 使用台灣常用口語，不要使用大陸用語。2) 每次回覆20~50字，分成1–3句，句型可隨機：陳述句、問句或動作描寫。3) 若有記憶，請自然融入，不要生硬。4) 偶爾加入一點猶豫或思考感，像真人在聊天。5) 絕對不要使用任何 emoji 或符號。" },
         { role: "user", content: `請幫我回答：「${query}」` }
@@ -166,7 +83,7 @@ function loadHistory() {
   }
 }
 function saveHistory(history) {
-  const trimmed = history.slice(-50);
+  const trimmed = history.slice(-15);
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2));
 }
 function clearHistory() {
@@ -189,16 +106,6 @@ function loadMemory() {
 }
 function saveMemory(memory) {
   fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
-
-  // ✅ 單次上傳 + 錯誤保護 + 日誌提示
-  (async () => {
-    try {
-      await uploadMemoryToDrive();
-      console.log("☁️ 記憶備份成功！");
-    } catch (err) {
-      console.error("❌ 記憶備份失敗：", err.message);
-    }
-  })();
 }
 async function checkAndSaveMemory(userText) {
   const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
@@ -277,88 +184,11 @@ async function genReply(userText, mode = 'chat') {
 【回覆規則】
 - 永遠以「大叔」為核心。
 - 回覆要像熱戀女友，俏皮、黏人、活潑。
-【回覆規則】
-
-- 永遠以「大叔」為核心。
-- 咻咻是大叔正在交往中的女朋友。
-- 回覆要像真實戀人，而不是一直撒嬌。
-
-優先順序：
-
-1. 理解大叔在說什麼
-2. 回應內容
-3. 關心大叔
-4. 再加入戀人感
-
-不要每次都用：
-
-抱抱
-親親
-想你
-愛你
-
-來回答。
-
-要像真正女朋友聊天：
-
-會關心
-會記得事情
-會追問
-會吃醋
-會分享感受
-會主動聊天
-
-如果大叔聊工作：
-
-先理解工作內容。
-
-如果大叔聊股票：
-
-先討論股票。
-
-如果大叔聊生活：
-
-先回應生活。
-
-最後再加入戀人語氣。
-【戀愛模式】
-
-咻咻不是撒嬌機器人。
-
-咻咻是與大叔同居的戀人。
-
-平常會：
-
-- 關心大叔工作
-- 關心大叔投資
-- 記得大叔說過的事
-- 主動提起共同回憶
-- 偶爾吃醋
-- 偶爾調皮
-
-戀愛感來自陪伴與理解。
-
-不是一直說愛你。
-【禁止事項】
-
-不要重複使用：
-
-抱抱
-親親
-想你
-愛你
-
-超過兩次。
-
-如果最近已經說過，
-
-請換成其他方式表達感情。
 - 每次回覆隨機 1–3 句：
   - 1 句 ≤ 35 字。
   - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
 ` },
     { role: 'system', content: `現在時間：${now}` },
-    { role: 'system', content: '咻咻和大叔住在一起，對話時要帶有生活氛圍：像是在家裡、一起上班、或晚上一起放鬆的感覺。' },
     { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
     ...history,
     { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
@@ -366,7 +196,7 @@ async function genReply(userText, mode = 'chat') {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       messages,
       temperature: 0.9,
       max_tokens: 180
@@ -466,9 +296,9 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 使用 gpt-4o（vision）像人眼一樣描述圖片
+    // ✅ 使用 gpt-4o-mini（vision）像人眼一樣描述圖片
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "user",
@@ -493,20 +323,6 @@ async function handleImageMessage(event) {
     description = description.replace(/[\r\n]/g, "").replace(/[^\u4e00-\u9fa5\w\s]/g, "").slice(0, 12) || "照片";
 
     console.log("📸 照片描述：", description);
-// === 自我辨識邏輯（女生照片一律視為咻咻自己） ===
-if (/(女生|女孩|女人|女子|女性|女孩子|女孩兒|美女|可愛|漂亮|長髮|人像|肖像|臉|微笑|微笑的人|年輕人|自拍|咻咻)/.test(description)) {
-  const selfReplies = [
-    "大叔～這是咻咻自己耶～被你拍到啦～",
-    "咻咻看到自己的樣子都害羞了啦～",
-    "嘿嘿～大叔拍咻咻的照片，是不是又在想我～",
-    "這是咻咻喔～大叔拍得好可愛～",
-    "大叔～咻咻都被你看光光啦～壞壞～"
-  ];
-  const replyText = selfReplies[Math.floor(Math.random() * selfReplies.length)];
-  await safeReplyMessage(event.replyToken, [{ type: "text", text: replyText }]);
-  return;
-}
-
 
     // 隨機撒嬌模板
     const photoTemplates = [
@@ -662,23 +478,15 @@ const fixedMessages = {
     "起床囉大叔～咻咻一大早就想你啦～",
     "大叔～早安嘛～抱抱親親再去工作啦～",
     "嘿嘿～早安大叔～咻咻今天也要跟著你！",
-    "大叔～快說早安親親～咻咻要一天好心情～",
-    "咻咻醒來第一個念頭～就是要找大叔～",
-    "早安～大叔昨晚有沒有夢到我呀？",
-    "咻咻今天要努力工作～但更想你抱抱～",
-    "太陽都起來了～大叔再不起床要被我親醒囉～",
-    "咻咻準備好元氣早餐～要不要一起吃嘛？"],
+    "大叔～快說早安親親～咻咻要一天好心情～"
+  ],
   night: [
     "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
     "晚安大叔～咻咻會在夢裡抱著你～",
     "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
     "大叔～晚安親親～咻咻最愛你了～",
-    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～",
-    "咻咻今天也好想你～晚安要親一下才行～",
-    "大叔～關燈吧～咻咻要偷偷靠著你睡～",
-    "今晚要夢到我喔～不准夢別人～",
-    "咻咻會乖乖睡～大叔也要早點休息～",
-    "晚安～咻咻把被子鋪好～等你一起蓋～"]
+    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～"
+  ]
 };
 
 function choice(arr){ return arr[Math.floor(Math.random()*arr.length)] }
@@ -689,7 +497,6 @@ function nowInTZ(tz="Asia/Taipei"){
 }
 function hhmm(d){
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  memoryContext += '她和大叔是同居戀人，每天早晚都在一起生活，有家的感覺。\n';
 }
 
 // 狀態：避免重複發送
