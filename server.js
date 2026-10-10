@@ -69,6 +69,37 @@ const lineClient = new LineClient({
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
 
+// Deployment diagnostics: never print the values of credentials.
+async function diagnoseConfiguration() {
+  const token = process.env.CHANNEL_ACCESS_TOKEN || "";
+  const aiKey = process.env.OPENAI_API_KEY || "";
+  console.log("🔍 XiuXiu version: redeploy-20261010-1");
+  console.log("🔍 LINE configuration:", {
+    tokenPresent: !!token,
+    tokenLength: token.length,
+    whitespace: /\s/.test(token),
+    bearerPrefix: /^Bearer\s/i.test(token),
+    secretPresent: !!process.env.CHANNEL_SECRET,
+    ownerPresent: !!ownerUserId
+  });
+  console.log("🔍 OpenAI configuration:", {
+    keyPresent: !!aiKey,
+    placeholder: /your[_-]?openai[_-]?api[_-]?key/i.test(aiKey),
+    expectedPrefix: aiKey.startsWith("sk-")
+  });
+  if (!token) return;
+  try {
+    // Official LINE Messaging API endpoint uses the same bearer authentication as replies.
+    const result = await fetch("https://api.line.me/v2/bot/info", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    console.log("🔍 LINE bot/info:", { httpStatus: result.status, authenticated: result.ok });
+  } catch (err) {
+    console.error("🔍 LINE validation network error:", err.message);
+  }
+}
+diagnoseConfiguration().catch(err => console.error("🔍 Diagnostics error:", err.message));
+
 // ======= 愛的模式（開關） =======
 let loveMode = false;
 
@@ -401,7 +432,7 @@ async function pushToOwner(messages) {
 
 // ======= Webhook =======
 app.post('/webhook', async (req, res) => {
-  console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
+  console.log("📥 Webhook event count:", req.body?.events?.length || 0);
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
       if (ev.type === "message") {
@@ -508,8 +539,10 @@ async function fixedPush(type){
   if (!text) return;
   try {
     await pushToOwner([{ type: "text", text }]);
+    return true;
   } catch(e){
     console.error("❌ fixedPush failed:", e?.message || e);
+    return false;
   }
 }
 
@@ -526,7 +559,7 @@ function generateRandomTimes(){
 }
 
 function ensureTodayPlan(now){
-  const today = now.toISOString().slice(0,10);
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
   if (randomPlan.date !== today){
     randomPlan.date = today;
     randomPlan.times = generateRandomTimes();
@@ -544,13 +577,11 @@ setInterval(async () => {
 
     // 固定：07:00 早安
     if (t === "07:00" && !sentMarks.has("morning:"+randomPlan.date)){
-      await fixedPush("morning");
-      sentMarks.add("morning:"+randomPlan.date);
+      if (await fixedPush("morning")) sentMarks.add("morning:"+randomPlan.date);
     }
     // 固定：23:00 晚安
     if (t === "23:00" && !sentMarks.has("night:"+randomPlan.date)){
-      await fixedPush("night");
-      sentMarks.add("night:"+randomPlan.date);
+      if (await fixedPush("night")) sentMarks.add("night:"+randomPlan.date);
     }
 
     // 白天隨機
@@ -561,10 +592,10 @@ setInterval(async () => {
           const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
           try{
             await pushToOwner(msgs);
+            sentMarks.add(key);
           }catch(e){
             console.error("❌ push rand failed:", e?.message || e);
           }
-          sentMarks.add(key);
         }
       }
     }
@@ -683,7 +714,7 @@ genReply = async function(userText, mode = 'chat') {
 
 
 function getFallbackNightReply(userMessage = "") {
-  let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
+  const memoryData = loadMemory();
   const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
   let replies = base.slice();
 
