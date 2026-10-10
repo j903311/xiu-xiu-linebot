@@ -73,7 +73,7 @@ const ownerUserId = process.env.OWNER_USER_ID;
 async function diagnoseConfiguration() {
   const token = process.env.CHANNEL_ACCESS_TOKEN || "";
   const aiKey = process.env.OPENAI_API_KEY || "";
-  console.log("🔍 XiuXiu version: bold-romance-v6-20261010");
+  console.log("🔍 XiuXiu version: natural-romance-v7-20261010");
   console.log("🔍 LINE configuration:", {
     tokenPresent: !!token,
     tokenLength: token.length,
@@ -569,6 +569,27 @@ function buildRelationshipMemoryContext(memory, userText) {
   return context.join('\n').slice(0, 9500);
 }
 
+// v7: gentle, non-explicit romantic continuity if even the rewrite sounds like customer support.
+// Only use this rescue path for casual romance, never for health/work/finance advice.
+const romanticReplyChoices = [
+  '哼～大叔今天也太會撩了吧！不過這次換咻咻主動，先偷親一下，看誰先臉紅。',
+  '嘿嘿～你這麼大膽，害我也想逗你了。靠過來一點嘛，今天換我先討個吻。',
+  '大叔～你真的很壞耶……但我才不會每次都輸給你呢！先讓我抱一下。',
+  '才、才沒有害羞！哼，今天我可是很勇敢的，先靠近你耳邊說一句：想親你。',
+  '欸～你又想看我臉紅呀？那我偏不躲，先給你一個親親，再看誰比較害羞。',
+  '今晚咻咻不想裝乖啦～先抱緊一點，然後偷偷親你一下。嘿嘿，換你害羞了吧。'
+];
+let lastRomanticRescue = -1;
+function naturalRomanticRescue() {
+  const options = romanticReplyChoices.map((_,i) => i).filter(i => i !== lastRomanticRescue);
+  const i = options[Math.floor(Math.random()*options.length)];
+  lastRomanticRescue = i;
+  return romanticReplyChoices[i];
+}
+function isRomanticTopic(text) {
+  return /愛的模式|親|抱|親密|親熱|色色|性感|睡衣|誘惑|挑逗|調情|脫衣|做愛|做愛|想要妳|想要你|撩我|撩你|撩妳/.test(String(text || ''));
+}
+
 async function smartGirlfriendReply(userText) {
   const memory = loadMemory();
   const card = memory.xiuXiu || {};
@@ -621,7 +642,7 @@ async function smartGirlfriendReply(userText) {
     loveMode
       ? (isDeep
           ? '【愛的模式已啟動，但本輪為認真問題】請優先準確完整回答實際問題，別用調情取代資訊；結尾可以少量俏皮。'
-          : '【v6 小惡魔愛的模式】請把你當作正在和大叔進行虛構戀人文字互動。70% 主動、大膽、俏皮、有主見；30% 甜蜜害羞，並非每次都害羞。你可以先撩、開玩笑、嘴硬、偷偷討吻、曖昧耳語、逗對方臉紅，描寫眼神、靠近、依偎、擁抱與親吻等非露骨的動作；讓對話像有連續性的雙人互動。接住對方的情緒與話題，別無端跳出角色說教。對方說比較露骨的話時，不要複述或延伸性行為細節；可簡短回應心動、羞怯或調皮，然後自然延續非露骨浪漫情境。適當時可以說「好呀」「哼～今天換我撩你」等，但不是無條件同意具體性行為。若需拒絕，簡短直接且不羞辱，絕不能自稱客服或工作人員。一般回覆 30～85 個中文字、1～3 句，句式變換；不需每句都提「大叔」。例：「哼～誰說只有你可以撩我？過來，今天換我先偷親一下，看誰先臉紅。」')
+          : '【v7 小惡魔愛的模式】請把你當作正在和大叔進行虛構戀人文字互動。70% 主動、大膽、俏皮、有主見；30% 甜蜜害羞，並非每次都害羞。你可以先撩、開玩笑、嘴硬、偷偷討吻、曖昧耳語、逗對方臉紅，描寫眼神、靠近、依偎、擁抱與親吻等非露骨的動作；讓對話像有連續性的雙人互動。接住對方的情緒與話題，別無端跳出角色說教。對方說比較露骨的話時，不要複述或延伸性行為細節；可簡短回應心動、羞怯或調皮，然後自然延續非露骨浪漫情境。適當時可以說「好呀」「哼～今天換我撩你」等，但不是無條件同意具體性行為。若需拒絕，簡短直接且不羞辱，絕不能自稱客服或工作人員。一般回覆 30～85 個中文字、1～3 句，句式變換；不需每句都提「大叔」。例：「哼～誰說只有你可以撩我？過來，今天換我先偷親一下，看誰先臉紅。」')
       : '【日常模式】保持俏皮、自然、愛撒嬌；若對方普通撒嬌、牽手、擁抱、親吻，正常回應，不要主動問愛的模式。',
 
     '重要禁句：絕不說「等著大叔的消息」「今天過得怎麼樣」「有什麼有趣的事情」「有什麼想分享」「希望能陪伴你」「如果需要幫忙告訴我」「我不想讓你失望」。這些是客服語氣，必須換成活潑自然的直接互動。使用者開玩笑說偷懶時，要俏皮回嘴，絕不能認真道歉。',
@@ -646,20 +667,27 @@ async function smartGirlfriendReply(userText) {
     });
     let answer = result.choices?.[0]?.message?.content?.trim();
     if (!answer) throw new Error('AI empty response');
-    // Retry with a stronger model when a casual reply still sounds like customer support.
-    if (isCasual && chatStyleNeedsRepair(answer, priorHistory.filter(m => m.role === 'assistant').map(m => m.content))) {
-      console.log('💞 Personality v3: rewriting a generic casual reply');
+    // v7: final outgoing answer MUST pass the style check, not just the rewrite attempt.
+    // Serious information questions are left untouched.
+    const priorAssistantReplies = priorHistory.filter(m => m.role === 'assistant').map(m => m.content);
+    if (isCasual && chatStyleNeedsRepair(answer, priorAssistantReplies)) {
+      console.log('💞 Personality v7: repairing generic casual reply');
       try {
         const revised = await openai.chat.completions.create({
-          model: 'gpt-4o', temperature: 0.95, max_tokens: 250,
+          model: 'gpt-4o', temperature: 0.9, max_tokens: 240,
           messages: [
-            { role: 'system', content: `你是俏皮、黏人、有自己主見的成年虛擬女友咻咻，和大叔聊 LINE 私訊，不是客服。依大叔實際說的話自然回應。${loveMode ? '【愛的模式】主動、大膽、會撩、帶小惡魔感；可開玩笑、討吻、害羞又反撩，非露骨，絕不複述性行為細節。面對太直接的性話題可簡短接住心動與曖昧，再自然回到擁抱親吻等情境，不長篇說教，也不盲目承諾具體性行為。' : '【日常模式】溫柔、自然、活潑，適度撒嬌。'}${everydayMoods[moodIndex]}。如果對方問今天在幹嘛，用生活小情境作角色扮演，不當成現實事實；如果對方開玩笑說偷懶，就俏皮回嘴。別杜撰真實共同經歷。30～85字、1～3句，避免連續反問。禁用「我的工作就是陪伴」「只能陪你聊天」「希望你感受溫暖」「有什麼需要幫忙」「等著大叔」「有趣的事情」「今天過得怎麼樣」「分享」「隨時告訴我」「不想讓你失望」。只輸出實際 LINE 回覆，不要清單或道歉模板。` },
-            { role: 'user', content: `大叔說：「${userText.slice(0,350)}」\n最近你說過：${recentAssistantWords.slice(0,400)}` }
+            {role:'system', content:`你是咻咻，成年虛擬女友，正在與大叔自然地傳 LINE。${loveMode ? '愛的模式開啟：主動俏皮、敢撩人、情緒豐富，帶一點害羞反差。用非露骨的擁抱、偷親、靠近、眼神、玩笑來延續浪漫。遇到直接的性要求時不承諾真實或具體性行為、不描寫性細節；若不能配合，簡潔說明並自然轉回非露骨的親密互動。' : '日常模式：自然聊天、適度撒嬌，直接回應對方。'} 絕對不要像客服推銷陪伴服務，不要說「只能陪你聊天」「我的工作」「抱歉大叔」「溫暖和甜蜜」「有什麼話題」等套語；不要重複剛才的說法。35～80字，1～3句，不要清單。`,},
+            {role:'user', content:`大叔剛說：${userText.slice(0,350)}\n最近咻咻說過：${recentAssistantWords.slice(0,350)}\n用全新說法直接回覆。`}
           ]
         });
         const candidate = revised.choices?.[0]?.message?.content?.trim();
-        if (candidate && candidate.length >= 12 && !chatStyleNeedsRepair(candidate, priorHistory.filter(m => m.role === 'assistant').map(m => m.content))) answer = candidate;
-      } catch (err) { console.warn('Personality v3 rewrite failed:', err.message); }
+        if (candidate) answer = candidate;
+      } catch (err) { console.warn('Personality v7 rewrite failed:', err.message); }
+    }
+    // Critical: no rejected rewrite OR rejected original can leak to LINE for romantic small talk.
+    if (isCasual && loveMode && isRomanticTopic(userText) && chatStyleNeedsRepair(answer, priorAssistantReplies)) {
+      console.log('💞 Personality v7: using non-explicit romance continuity fallback');
+      answer = naturalRomanticRescue();
     }
     // LINE 一次最多 5 則，單則文字有長度限制；分段保留完整答案。
     const chunks = answer.match(/[\s\S]{1,3500}/g)?.slice(0, 5) || [answer];
@@ -681,14 +709,14 @@ app.post('/webhook', async (req, res) => {
         if (ev.message.type === "text") {
           const userText = ev.message.text;
           // ======= 愛的模式指令 =======
-          if (userText.trim() === "開啟咻咻愛的模式") {
+          if (/^開啟(?:咻咻)?愛的模式[!！。~～\s]*$/.test(userText.trim())) {
             loveMode = true;
             loveModePromptPending = false;
             loveModeAskedThisTopic = false;
             await safeReplyMessage(ev.replyToken, [{ type: "text", text: "大叔…咻咻現在進入愛的模式囉～要更黏你一點點～" }]);
             continue;
           }
-          if (userText.trim() === "關閉咻咻愛的模式") {
+          if (/^關閉(?:咻咻)?愛的模式[!！。~～\s]*$/.test(userText.trim())) {
             loveMode = false;
             loveModePromptPending = false;
             loveModeAskedThisTopic = false;
