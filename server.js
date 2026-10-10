@@ -73,7 +73,7 @@ const ownerUserId = process.env.OWNER_USER_ID;
 async function diagnoseConfiguration() {
   const token = process.env.CHANNEL_ACCESS_TOKEN || "";
   const aiKey = process.env.OPENAI_API_KEY || "";
-  console.log("🔍 XiuXiu version: natural-identity-v9-20261010");
+  console.log("🔍 XiuXiu version: smart-web-v10-20261011");
   console.log("🔍 LINE configuration:", {
     tokenPresent: !!token,
     tokenLength: token.length,
@@ -632,6 +632,53 @@ function isRomanticTopic(text) {
   return /愛的模式|親|抱|親密|親熱|色色|性感|睡衣|誘惑|挑逗|調情|脫衣|做愛|做愛|想要妳|想要你|撩我|撩你|撩妳/.test(String(text || ''));
 }
 
+// v10: search only when public information is likely to have changed.
+// Chatting, roleplay, personal memory and timeless knowledge stay on the normal path.
+function needsLiveWebVerification(text) {
+  const value = String(text || '').trim();
+  if (!value || /^查記憶|長期記憶|刪掉記憶/.test(value)) return false;
+  if (/^(?:咻咻|文文|大叔)[，,～\s]*(?:妳|你)?(?:幾歲|多高|身高|身材|喜歡|記得|認識)/.test(value)) return false;
+  const rapidlyChanging = /最新|即時|現在|目前|今天|明天|昨日|昨天|本週|本月|今年|近期|新聞|頭條|公告|上市|營收|股價|匯率|利率|油價|金價|氣溫|天氣|颱風|選舉|民調|開票|票價|班機|航班|營業時間|有開嗎|停班停課/i;
+  const publicRoles = /總統|副總統|行政院長|院長是誰|市長|縣長|首相|國王|部長|執行長|CEO|董事長|現任|領導人|當選|繼任|卸任|上任|在任/i;
+  const explicitLookup = /幫我查|幫我找|搜尋|查一下|查證|網路上|官網|官方網站|資料來源/i;
+  return rapidlyChanging.test(value) || publicRoles.test(value) || explicitLookup.test(value);
+}
+
+async function fetchVerifiedWebContext(question) {
+  // Uses the existing OPENAI_API_KEY; web search can incur additional API charges.
+  try {
+    const response = await openai.responses.create({
+      model: process.env.WEB_SEARCH_MODEL || 'gpt-4.1-mini',
+      tools: [{ type: 'web_search', search_context_size: 'medium' }],
+      tool_choice: 'required',
+      input: [
+        { role: 'system', content: '你是繁體中文即時資訊查證助理。先查找可信來源，回答使用者問的具體事實，註明資料日期；能取得來源網址就列出1~3個連結。不要裝成咻咻，不要捏造查證結果。' },
+        { role: 'user', content: `台灣現在時間：${new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}。需要查證的問題：${String(question).slice(0,900)}` }
+      ],
+      max_output_tokens: 650
+    });
+    const answer = String(response.output_text || '').trim();
+    const usedWeb = Array.isArray(response.output) && response.output.some(item => item?.type === 'web_search_call');
+    if (!usedWeb || !answer) return { ok: false, text: '' };
+    // Where available, preserve grounded URL sources alongside the factual result.
+    const links = [];
+    for (const item of (response.output || [])) {
+      for (const c of (item.content || [])) {
+        for (const a of (c.annotations || [])) {
+          if (a.type === 'url_citation' && /^https?:\/\//i.test(a.url || '')) links.push(a.url);
+        }
+      }
+    }
+    const unique = [...new Set(links)].slice(0,3);
+    const sources = unique.length ? '\n查證來源：\n' + unique.map(url => '- ' + url).join('\n') : '';
+    console.log('🌐 v10 web verification succeeded; sources:',unique.length);
+    return { ok: true, text: (answer + sources).slice(0,6000) };
+  } catch (error) {
+    console.warn('🌐 v10 web verification unavailable:', error?.message || String(error));
+    return { ok: false, text: '' };
+  }
+}
+
 async function smartGirlfriendReply(userText) {
   const memory = loadMemory();
   const card = memory.xiuXiu || {};
@@ -644,6 +691,8 @@ async function smartGirlfriendReply(userText) {
   const memoryFacts = (Array.isArray(memory.logs) ? memory.logs : [])
     .slice(-70).map(m => String(m.text || '')).filter(Boolean).join('\n').slice(-6500);
   const relationshipMemory = buildRelationshipMemoryContext(memory, userText);
+  const liveWebNeeded = needsLiveWebVerification(userText);
+  const verifiedWeb = liveWebNeeded ? await fetchVerifiedWebContext(userText) : {ok:false,text:''};
   const personaContext = buildXiuXiuPersonaContext(memory);
 
   // 外部即時資料不能僅憑模型記憶宣稱查證；僅在「新聞」明確出現時附公開 RSS 標題。
@@ -682,6 +731,7 @@ async function smartGirlfriendReply(userText) {
     '如果使用者問「今天在幹嘛」這類閒聊問題，回得像愛撒嬌的熟悉戀人：可以從動漫、遊戲、甜點或心情發揮想像中的日常小情境，但不要把虛構內容當成外部真實事件；以自然角色扮演方式表達。',
     '如果大叔焦慮、難過或生氣，先貼合情緒再支持，不要無緣無故吵鬧或吃醋；避免情緒勒索、強迫專屬或阻止現實交往。',
     '如果是知識、工作、退休、股票、財務、健康、旅遊等需要精確內容的問題，先真正回答重點，必要時條列或完整分析，再自然帶入一點親密關心；絕對不能用撒嬌取代實質答案，篇幅不硬性限制。',
+    '一般穩定知識請直接回答，不需先道歉或要求對方自行搜尋。若收到已核實的外部資訊，優先根據查證結果直接回答，附上有效的來源連結，不要改寫成無法提供即時資訊。若查詢失敗，誠實說明本次無法核實最新狀況，再分享可確認的歷史背景（標明其非即時）。',
     '不要杜撰已發生的共同經歷、使用者即時處境或自己查過的網站，不要亂報即時股價或天氣；無法核實時要說明，投資及醫療資訊不保證結果。',
     '允許非露骨的戀人親密和親吻，禁止露骨性內容。不要自稱是人類，也不要讓使用者誤以為你能真的在現實中見面。',
     loveMode
@@ -702,7 +752,8 @@ async function smartGirlfriendReply(userText) {
     `台灣時間：${new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei'})}`
   ].join('\n');
   const messages = [{ role: 'system', content: systemPrompt }, ...priorHistory];
-  if (newsContext) messages.push({role:'system', content:`可參考的 Google News RSS 標題（只知道標題，不能聲稱看過全文）：\n${newsContext}`});
+  if (newsContext && !liveWebNeeded) messages.push({role:'system', content:`可參考的 Google News RSS 標題（只知道標題，不能聲稱看過全文）：\n${newsContext}`});
+  if (liveWebNeeded) messages.push({role:'system', content: verifiedWeb.ok ? `【本輪已實際網路查證的資訊；請直接回答並提供來源】\n${verifiedWeb.text}` : '【本輪需要查證新資訊，但網路查詢失敗或沒有可驗證結果】不能聲稱已查到最新資料；可以提供明確標註為歷史背景的既有知識，若使用者問現任者、即時數值或今天的事件，請說無法確認目前狀況。'});
   messages.push({ role: 'user', content: userText });
 
   try {
