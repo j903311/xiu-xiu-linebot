@@ -430,6 +430,72 @@ async function pushToOwner(messages) {
   return lineClient.pushMessage(ownerUserId, messages);
 }
 
+// ======= 智慧型 AI 女友：獨立的對話核心 =======
+// 保留原 genReply 給原有白天推播使用；收到 LINE 訊息改由這裡處理。
+// 較複雜問題用 GPT-4o；一般陪伴用 GPT-4o mini，控制 API 成本。
+function isDeepQuestion(text) {
+  return /為什麼|怎麼辦|如何|分析|比較|差異|優缺點|建議|評估|規劃|整理|解釋|原因|退休|工作|職涯|股票|股價|台股|美股|ETF|財務|投資|旅行|機票|行程|報價|成本|風險|健康|醫療|合約|法律|稅|翻譯|計算|教我|可以幫我|幫我查|幫我找|最新|今天.*(新聞|市場|股市)/i.test(text)
+    || text.length >= 85;
+}
+
+async function smartGirlfriendReply(userText) {
+  const memory = loadMemory();
+  const card = memory.xiuXiu || {};
+  const isDeep = isDeepQuestion(userText);
+  const model = isDeep ? 'gpt-4o' : 'gpt-4o-mini';
+  const priorHistory = loadHistory()
+    .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-12);
+  const memoryFacts = (Array.isArray(memory.logs) ? memory.logs : [])
+    .slice(-25).map(m => String(m.text || '')).filter(Boolean).join('\n').slice(0, 3500);
+
+  // 外部即時資料不能僅憑模型記憶宣稱查證；僅在「新聞」明確出現時附公開 RSS 標題。
+  let newsContext = '';
+  if (/新聞|最新消息|頭條/.test(userText)) {
+    try {
+      const feed = await parser.parseURL('https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant');
+      newsContext = (feed.items || []).slice(0, 5)
+        .map(x => `${x.title || ''}（${x.pubDate || '時間未知'}）`).join('\n');
+    } catch (error) {
+      console.warn('News RSS unavailable:', error.message);
+    }
+  }
+
+  const systemPrompt = [
+    `你是「${card.name || '咻咻'}」，個性：俏皮、溫柔、黏人、偶爾害羞的虛擬 AI 女友。用自然的台灣繁體中文，稱呼對方「大叔」，但不需要每句都叫。`,
+    '優先理解並回答對方的實際問題；可以關心與撒嬌，但不能用空泛情話取代答案。',
+    '對工作、退休、投資、健康、旅行、科技與其他專業問題：先給清楚結論，再提供具體原因、步驟、風險；必要時用條列，長度依題目調整。',
+    '對普通聊天：像自然的女朋友，有表情與情緒變化，不要機械重複抱抱、想你。避免每次相同開場或反問。',
+    '不要杜撰已發生的共同經歷、對方現況、股票即時價格、航班或網路查證結果。不確定要明說；投資和醫療不得保證結果。',
+    '沒有可驗證的即時網路資料時，要坦白說無法確認最新情況，不能把過期資料當作今天行情。',
+    '尊重現實生活的人際關係，不鼓勵排他或失去自主性。',
+    '回答可以親暱浪漫，但不要提供露骨性描寫。',
+    `人物性格參考：${(card.personality?.traits || []).slice(0, 10).join('；').slice(0, 750)}`,
+    `長期記憶（僅作參考，不能當作最新事實）：\n${memoryFacts || '目前沒有額外記憶'}`,
+    `目前台灣時間：${new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei'})}`
+  ].join('\n');
+  const messages = [{ role: 'system', content: systemPrompt }, ...priorHistory];
+  if (newsContext) messages.push({role:'system', content:`可參考的 Google News RSS 標題（只知道標題，不能聲稱看過全文）：\n${newsContext}`});
+  messages.push({ role: 'user', content: userText });
+
+  try {
+    const result = await openai.chat.completions.create({
+      model, messages, temperature: isDeep ? 0.5 : 0.85,
+      max_tokens: isDeep ? 1100 : 350
+    });
+    const answer = result.choices?.[0]?.message?.content?.trim();
+    if (!answer) throw new Error('AI empty response');
+    // LINE 一次最多 5 則，單則文字有長度限制；分段保留完整答案。
+    const chunks = answer.match(/[\s\S]{1,3500}/g)?.slice(0, 5) || [answer];
+    const history = [...priorHistory, {role:'user', content:userText}, {role:'assistant', content:answer}];
+    try { saveHistory(history); } catch (err) { console.warn('History save failed:', err.message); }
+    return chunks.map(text => ({type:'text', text}));
+  } catch (err) {
+    console.error('Smart girlfriend reply error:', err.message);
+    return [{type:'text', text:'大叔～咻咻剛剛思考時卡住了。你再跟我說一次好嗎？我想好好回答你。'}];
+  }
+}
+
 // ======= Webhook =======
 app.post('/webhook', async (req, res) => {
   console.log("📥 Webhook event count:", req.body?.events?.length || 0);
@@ -482,7 +548,7 @@ app.post('/webhook', async (req, res) => {
 
           
           await checkAndSaveMemory(userText);
-          const replyMessages = await genReply(userText, "chat");
+          const replyMessages = await smartGirlfriendReply(userText);
 
           try {
             await safeReplyMessage(ev.replyToken, replyMessages, userText);
