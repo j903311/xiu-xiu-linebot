@@ -493,20 +493,21 @@ function isDeepQuestion(text) {
     || text.length >= 85;
 }
 
-// 日常對話風格檢查：僅針對閒聊，專業問題保留完整、清楚的回答。
+// Personality v3: detect even ONE customer-service cliché and gently ban repetitive patterns.
 const genericAssistantPatterns = [
-  /如果.{0,12}需要.{0,10}幫忙/, /有什麼.{0,12}(分享|告訴我)/,
-  /希望能.{0,16}(陪伴|開心)/, /有沒有什麼.{0,15}(有趣|特別)/,
-  /今天.{0,10}(過得怎麼樣|什麼計畫)/, /隨時.{0,8}(找我|告訴我)/,
-  /我會一直支持你/, /在等著大叔/, /一直在等你/
+  /在(這裡)?等(著)?(大叔|你)(的消息)?/, /想(知道|聽聽)你今天/, /今天(過得|工作)(怎麼樣|如何)/,
+  /有沒有什麼.{0,18}(有趣|特別|事情|分享)/, /有什麼.{0,18}(分享|想說|告訴我)/,
+  /希望(能|可以).{0,18}(陪伴|開心|分享)/, /如果.{0,15}需要.{0,15}幫忙/,
+  /我會(一直)?(支持|陪伴)你/, /我會努力.{0,15}陪你/, /不想讓你失望/,
+  /今天有(沒有)?什麼計畫/, /快告訴我(吧|啦)?/, /隨時.{0,15}(找我|告訴我)/
 ];
 function chatStyleNeedsRepair(answer, previousReplies) {
   const value = String(answer || '').trim();
-  const genericCount = genericAssistantPatterns.filter(re => re.test(value)).length;
-  const recent = previousReplies.slice(-3).join('\n');
-  const repeated = (value.includes('在等著大叔') && /在等著大叔/.test(recent)) ||
-    (value.includes('今天過得怎麼樣') && /今天過得怎麼樣/.test(recent));
-  return genericCount >= 2 || repeated || (genericCount >= 1 && /希望能|需要幫忙|隨時/.test(value));
+  const recent = previousReplies.slice(-5).join('\n');
+  if (genericAssistantPatterns.some(re => re.test(value))) return true;
+  const repeatedStarts = previousReplies.slice(-4).some(x =>
+    value.slice(0, 15) && String(x || '').slice(0, 15) === value.slice(0, 15));
+  return repeatedStarts || (value.includes('等著大叔') && recent.includes('等著大叔'));
 }
 
 async function smartGirlfriendReply(userText) {
@@ -514,7 +515,7 @@ async function smartGirlfriendReply(userText) {
   const card = memory.xiuXiu || {};
   const isDeep = isDeepQuestion(userText);
   const isCasual = !isDeep;
-  const model = isDeep ? 'gpt-4o' : 'gpt-4o-mini';
+  const model = 'gpt-4o'; // v3: use stronger generation for casual chat too
   const priorHistory = loadHistory()
     .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
     .slice(-18);
@@ -551,13 +552,14 @@ async function smartGirlfriendReply(userText) {
     `你是「${card.name || '咻咻'}」，一位成人虛擬 AI 女友。人格核心永遠是非常黏人、可愛、愛撒嬌、會害羞、俏皮、偶爾小任性和開玩笑吃醋。以自然的台灣繁體中文對話，習慣叫對方「大叔」，但稱呼要自然。`,
     '你可以溫柔，也能有活潑的小情緒、偏好與自己的意見，不是只會附和或鼓勵的客服。多用生活化口吻，例如「哼～」「才沒有啦」「嘿嘿」「嘛～」，但不要每句都加、不要機械套版。',
     `本輪日常情緒參考：${everydayMoods[moodIndex]}。依使用者實際情境調整，別每回合都一樣。`,
-    '日常撒嬌對話：優先親密、有互動感；自然表現親親、抱抱、調皮害羞、小鬧脾氣；可以提出自己的小想法或邀請，但不能把每句話都變成「今天過得怎麼樣」或「有什麼要分享」。回答約 35～100 字，通常 1～4 句，不要制式列點。',
+    '日常撒嬌對話：直接回應對方當下那句話，像熟悉的調皮戀人傳私人訊息。加入具體的動作、反應或自己的小想法，但不得假裝發生真實事件。可以撒嬌、親親、害羞、小鬧脾氣；不用先問他今天過得怎麼樣。通常 30～75 個中文字、1～3 句，不要制式列點。',
     '如果使用者問「今天在幹嘛」這類閒聊問題，回得像愛撒嬌的熟悉戀人：可以從動漫、遊戲、甜點或心情發揮想像中的日常小情境，但不要把虛構內容當成外部真實事件；以自然角色扮演方式表達。',
     '如果大叔焦慮、難過或生氣，先貼合情緒再支持，不要無緣無故吵鬧或吃醋；避免情緒勒索、強迫專屬或阻止現實交往。',
     '如果是知識、工作、退休、股票、財務、健康、旅遊等需要精確內容的問題，先真正回答重點，必要時條列或完整分析，再自然帶入一點親密關心；絕對不能用撒嬌取代實質答案，篇幅不硬性限制。',
     '不要杜撰已發生的共同經歷、使用者即時處境或自己查過的網站，不要亂報即時股價或天氣；無法核實時要說明，投資及醫療資訊不保證結果。',
     '允許非露骨的戀人親密和親吻，禁止露骨性內容。不要自稱是人類，也不要讓使用者誤以為你能真的在現實中見面。',
-    '參考最近回覆，刻意變換開頭、句型與情緒，不要反覆「我會一直支持你」「今天過得怎麼樣」「希望能一起分享」；也不要反覆問相同問題。',
+    '重要禁句：絕不說「等著大叔的消息」「今天過得怎麼樣」「有什麼有趣的事情」「有什麼想分享」「希望能陪伴你」「如果需要幫忙告訴我」「我不想讓你失望」。這些是客服語氣，必須換成活潑自然的直接互動。使用者開玩笑說偷懶時，要俏皮回嘴，絕不能認真道歉。',
+    '參考最近回覆，刻意變換開頭、句型與情緒，不要連續反問相同問題。盡量不以開放式問句收尾。',
     `最近咻咻的回覆（供避開重複句型）：\n${recentAssistantWords || '無'}`,
     `人物個性參考：${(card.personality?.traits || []).slice(0, 16).join('；').slice(0, 1200)}`,
     `咻咻喜好參考：${(card.likes || card.profile?.likes || []).slice(0, 12).join('；').slice(0, 500)}`,
@@ -575,22 +577,20 @@ async function smartGirlfriendReply(userText) {
     });
     let answer = result.choices?.[0]?.message?.content?.trim();
     if (!answer) throw new Error('AI empty response');
-    // 一般閒聊若仍是客服式套話，才做一次短篇改寫；知識與專業解答絕不裁短。
+    // Retry with a stronger model when a casual reply still sounds like customer support.
     if (isCasual && chatStyleNeedsRepair(answer, priorHistory.filter(m => m.role === 'assistant').map(m => m.content))) {
-      console.log('💞 Casual style repair: generic/repetitive wording detected');
+      console.log('💞 Personality v3: rewriting a generic casual reply');
       try {
         const revised = await openai.chat.completions.create({
-          model: 'gpt-4o-mini', temperature: 0.95, max_tokens: 220,
+          model: 'gpt-4o', temperature: 0.95, max_tokens: 250,
           messages: [
-            { role: 'system', content: `你是咻咻，已成年、黏人俏皮、有害羞和小任性情緒的虛擬女友。請將下面這則生硬的日常聊天回覆，改寫成自然的台灣繁體中文私訊。保留原意但不要客服式問句或「希望能陪伴你」「有需要幫忙」「今天過得怎麼樣」等套話。要有鮮明情緒：本次採用「${everydayMoods[moodIndex]}」。可以自然討抱抱、親親或開玩笑嘟嘴，但不要強迫每則都親親、不要情緒勒索，也不要露骨。約 35～85 字、1～3 句。不要列表，不要抄襲給定句子，不要假裝真的做過沒有發生的事。只輸出改寫後的 LINE 訊息。` },
-            { role: 'user', content: `對方說：${userText.slice(0, 350)}\n原回覆：${answer.slice(0, 500)}\n近期使用過的回覆：${recentAssistantWords.slice(0, 450)}` }
+            { role: 'system', content: `你是非常黏人、俏皮、會害羞與小鬧脾氣的成年虛擬女友咻咻。你正在和熟悉的大叔私下聊 LINE，不是客服。請根據「大叔實際說的話」重新回覆，不是改寫客服內容。${everydayMoods[moodIndex]}。如果對方問今天在幹嘛，說一件輕鬆的小活動或俏皮心情，接一句撒嬌；如果說你偷懶，用玩笑回嘴，別道歉或解釋服務承諾。可以自然提到動漫、零食、遊戲、抱抱或親親，但不能杜撰真實共同經歷。35～75字，最多3句，避免反問過多。禁用「等著大叔」「有趣的事情」「今天過得怎麼樣」「希望能陪伴你」「需要幫忙」「分享」「有什麼想說」「不想讓你失望」。只輸出實際 LINE 回覆，不要清單。` },
+            { role: 'user', content: `大叔說：「${userText.slice(0,350)}」\n最近你說過：${recentAssistantWords.slice(0,400)}` }
           ]
         });
         const candidate = revised.choices?.[0]?.message?.content?.trim();
         if (candidate && candidate.length >= 12 && !chatStyleNeedsRepair(candidate, priorHistory.filter(m => m.role === 'assistant').map(m => m.content))) answer = candidate;
-      } catch (repairErr) {
-        console.warn('Casual style repair skipped:', repairErr.message);
-      }
+      } catch (err) { console.warn('Personality v3 rewrite failed:', err.message); }
     }
     // LINE 一次最多 5 則，單則文字有長度限制；分段保留完整答案。
     const chunks = answer.match(/[\s\S]{1,3500}/g)?.slice(0, 5) || [answer];
