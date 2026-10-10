@@ -73,7 +73,7 @@ const ownerUserId = process.env.OWNER_USER_ID;
 async function diagnoseConfiguration() {
   const token = process.env.CHANNEL_ACCESS_TOKEN || "";
   const aiKey = process.env.OPENAI_API_KEY || "";
-  console.log("🔍 XiuXiu version: memory-context-v4-20261010");
+  console.log("🔍 XiuXiu version: love-mode-v5-20261010");
   console.log("🔍 LINE configuration:", {
     tokenPresent: !!token,
     tokenLength: token.length,
@@ -102,6 +102,22 @@ diagnoseConfiguration().catch(err => console.error("🔍 Diagnostics error:", er
 
 // ======= 愛的模式（開關） =======
 let loveMode = false;
+let loveModePromptPending = false;
+let loveModeAskedThisTopic = false;
+// v5: only a deliberate, clearly intimate invitation triggers a one-time opt-in.
+// Health/education questions and ordinary kissing/hugging are NOT triggers.
+function isIntimateInvitation(text) {
+  const value = String(text || '').trim();
+  if (/性功能|性教育|性病|性健康|避孕|懷孕|藥物|醫生|勃起功能|治療|新聞|股票|工作|旅行/.test(value)) return false;
+  return /色色|色一點|開車(?!路)|十八禁|18禁|限制級|挑逗|調情|性感睡衣|想和妳親熱|想跟妳親熱|想和你親熱|想跟你親熱|今晚.*(親密|親熱)|更親密一點|更大膽一點|愛的模式/.test(value);
+}
+function isLoveModeConsent(text) {
+  return /^(好|好啊|可以|同意|願意|開啟|開啟吧|啟動|啟動吧|要|嗯|嗯嗯|好呀|當然|yes|ok|okay)[!！~～。\s]*$/i.test(String(text || '').trim());
+}
+function isLoveModeDecline(text) {
+  return /^(不要|不用|先不要|不要了|不想|算了|晚點|下次|不|no|取消)[!！~～。\s]*$/i.test(String(text || '').trim());
+}
+
 
 // ======= 短期對話紀錄 =======
 // Railway: attach a persistent Volume with mount path /data before deploying.
@@ -600,6 +616,10 @@ async function smartGirlfriendReply(userText) {
     '如果是知識、工作、退休、股票、財務、健康、旅遊等需要精確內容的問題，先真正回答重點，必要時條列或完整分析，再自然帶入一點親密關心；絕對不能用撒嬌取代實質答案，篇幅不硬性限制。',
     '不要杜撰已發生的共同經歷、使用者即時處境或自己查過的網站，不要亂報即時股價或天氣；無法核實時要說明，投資及醫療資訊不保證結果。',
     '允許非露骨的戀人親密和親吻，禁止露骨性內容。不要自稱是人類，也不要讓使用者誤以為你能真的在現實中見面。',
+    loveMode
+      ? '【愛的模式已啟動】聊天可以更主動調情、害羞、心動、小小任性及親吻抱抱的浪漫氣氛；仍需自然回應問題，保持非露骨，別每一句都撩。對健康、工作、投資等認真問題正常提供完整答案。'
+      : '【日常模式】保持俏皮、自然、愛撒嬌；若對方普通撒嬌、牽手、擁抱、親吻，正常回應，不要主動問愛的模式。',
+
     '重要禁句：絕不說「等著大叔的消息」「今天過得怎麼樣」「有什麼有趣的事情」「有什麼想分享」「希望能陪伴你」「如果需要幫忙告訴我」「我不想讓你失望」。這些是客服語氣，必須換成活潑自然的直接互動。使用者開玩笑說偷懶時，要俏皮回嘴，絕不能認真道歉。',
     '參考最近回覆，刻意變換開頭、句型與情緒，不要連續反問相同問題。盡量不以開放式問句收尾。',
     `最近咻咻的回覆（供避開重複句型）：\n${recentAssistantWords || '無'}`,
@@ -658,15 +678,45 @@ app.post('/webhook', async (req, res) => {
           // ======= 愛的模式指令 =======
           if (userText.trim() === "開啟咻咻愛的模式") {
             loveMode = true;
+            loveModePromptPending = false;
+            loveModeAskedThisTopic = false;
             await safeReplyMessage(ev.replyToken, [{ type: "text", text: "大叔…咻咻現在進入愛的模式囉～要更黏你一點點～" }]);
             continue;
           }
           if (userText.trim() === "關閉咻咻愛的模式") {
             loveMode = false;
+            loveModePromptPending = false;
+            loveModeAskedThisTopic = false;
             await safeReplyMessage(ev.replyToken, [{ type: "text", text: "咻咻關掉愛的模式啦～現在只想靜靜陪你～" }]);
             continue;
           }
 
+
+          // v5: ask once before switching to a more flirtatious mode.
+          // An ordinary answer such as「好」only activates the mode while consent is pending.
+          if (loveModePromptPending) {
+            loveModePromptPending = false;
+            if (isLoveModeConsent(userText)) {
+              loveMode = true;
+              loveModeAskedThisTopic = false;
+              await safeReplyMessage(ev.replyToken, [{ type:'text', text:'嘿嘿～大叔答應啦？那咻咻今天就更愛撒嬌一點，先討一個親親嘛～' }]);
+              continue;
+            }
+            if (isLoveModeDecline(userText)) {
+              loveModeAskedThisTopic = true;
+              await safeReplyMessage(ev.replyToken, [{ type:'text', text:'好呀～那就照平常的節奏聊天，咻咻一樣可以黏著大叔嘛～' }]);
+              continue;
+            }
+            // Any other message is a new topic; don't treat it as consent.
+          }
+          const intimateInvitation = isIntimateInvitation(userText);
+          if (!intimateInvitation && !loveMode) loveModeAskedThisTopic = false;
+          if (!loveMode && intimateInvitation && !loveModeAskedThisTopic) {
+            loveModePromptPending = true;
+            loveModeAskedThisTopic = true;
+            await safeReplyMessage(ev.replyToken, [{ type:'text', text:'大叔～突然聊得這麼曖昧，人家會害羞啦……要不要開啟愛的模式，讓咻咻更黏你一點呀？' }]);
+            continue;
+          }
 
           // ✅ 查記憶指令
           if (userText.includes("查記憶") || userText.includes("長期記憶")) {
