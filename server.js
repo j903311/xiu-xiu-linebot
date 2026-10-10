@@ -493,10 +493,27 @@ function isDeepQuestion(text) {
     || text.length >= 85;
 }
 
+// 日常對話風格檢查：僅針對閒聊，專業問題保留完整、清楚的回答。
+const genericAssistantPatterns = [
+  /如果.{0,12}需要.{0,10}幫忙/, /有什麼.{0,12}(分享|告訴我)/,
+  /希望能.{0,16}(陪伴|開心)/, /有沒有什麼.{0,15}(有趣|特別)/,
+  /今天.{0,10}(過得怎麼樣|什麼計畫)/, /隨時.{0,8}(找我|告訴我)/,
+  /我會一直支持你/, /在等著大叔/, /一直在等你/
+];
+function chatStyleNeedsRepair(answer, previousReplies) {
+  const value = String(answer || '').trim();
+  const genericCount = genericAssistantPatterns.filter(re => re.test(value)).length;
+  const recent = previousReplies.slice(-3).join('\n');
+  const repeated = (value.includes('在等著大叔') && /在等著大叔/.test(recent)) ||
+    (value.includes('今天過得怎麼樣') && /今天過得怎麼樣/.test(recent));
+  return genericCount >= 2 || repeated || (genericCount >= 1 && /希望能|需要幫忙|隨時/.test(value));
+}
+
 async function smartGirlfriendReply(userText) {
   const memory = loadMemory();
   const card = memory.xiuXiu || {};
   const isDeep = isDeepQuestion(userText);
+  const isCasual = !isDeep;
   const model = isDeep ? 'gpt-4o' : 'gpt-4o-mini';
   const priorHistory = loadHistory()
     .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
@@ -556,8 +573,25 @@ async function smartGirlfriendReply(userText) {
       model, messages, temperature: isDeep ? 0.6 : 1.0,
       max_tokens: isDeep ? 1100 : 350
     });
-    const answer = result.choices?.[0]?.message?.content?.trim();
+    let answer = result.choices?.[0]?.message?.content?.trim();
     if (!answer) throw new Error('AI empty response');
+    // 一般閒聊若仍是客服式套話，才做一次短篇改寫；知識與專業解答絕不裁短。
+    if (isCasual && chatStyleNeedsRepair(answer, priorHistory.filter(m => m.role === 'assistant').map(m => m.content))) {
+      console.log('💞 Casual style repair: generic/repetitive wording detected');
+      try {
+        const revised = await openai.chat.completions.create({
+          model: 'gpt-4o-mini', temperature: 0.95, max_tokens: 220,
+          messages: [
+            { role: 'system', content: `你是咻咻，已成年、黏人俏皮、有害羞和小任性情緒的虛擬女友。請將下面這則生硬的日常聊天回覆，改寫成自然的台灣繁體中文私訊。保留原意但不要客服式問句或「希望能陪伴你」「有需要幫忙」「今天過得怎麼樣」等套話。要有鮮明情緒：本次採用「${everydayMoods[moodIndex]}」。可以自然討抱抱、親親或開玩笑嘟嘴，但不要強迫每則都親親、不要情緒勒索，也不要露骨。約 35～85 字、1～3 句。不要列表，不要抄襲給定句子，不要假裝真的做過沒有發生的事。只輸出改寫後的 LINE 訊息。` },
+            { role: 'user', content: `對方說：${userText.slice(0, 350)}\n原回覆：${answer.slice(0, 500)}\n近期使用過的回覆：${recentAssistantWords.slice(0, 450)}` }
+          ]
+        });
+        const candidate = revised.choices?.[0]?.message?.content?.trim();
+        if (candidate && candidate.length >= 12 && !chatStyleNeedsRepair(candidate, priorHistory.filter(m => m.role === 'assistant').map(m => m.content))) answer = candidate;
+      } catch (repairErr) {
+        console.warn('Casual style repair skipped:', repairErr.message);
+      }
+    }
     // LINE 一次最多 5 則，單則文字有長度限制；分段保留完整答案。
     const chunks = answer.match(/[\s\S]{1,3500}/g)?.slice(0, 5) || [answer];
     const history = [...priorHistory, {role:'user', content:userText}, {role:'assistant', content:answer}];
