@@ -534,15 +534,69 @@ function hhmm(d){
 let sentMarks = new Set();
 let randomPlan = { date: "", times: [] };
 
-async function fixedPush(type){
-  const text = choice(fixedMessages[type] || []);
-  if (!text) return;
+// 早晚安改成 OpenAI 每次生成；固定句庫僅在 AI 不可用時備援。
+// 同一時段的重試使用相同訊息，避免重複呼叫 AI。
+const greetingCache = new Map();
+const greetingInFlight = new Set();
+const greetingRecent = [];
+const greetingStyles = [
+  "俏皮、帶點小任性", "甜蜜溫柔、自然關心", "活潑、像剛想到大叔",
+  "害羞、期待親親", "輕聲細語、溫暖陪伴", "分享一件平凡生活小事",
+  "稍微淘氣、真實有情緒", "慵懶撒嬌、帶點幽默"
+];
+
+async function makeAIGreeting(type, dateKey) {
+  const cachedKey = `${dateKey}:${type}`;
+  if (greetingCache.has(cachedKey)) return greetingCache.get(cachedKey);
+  const memory = loadMemory();
+  const card = memory.xiuXiu || {};
+  const isMorning = type === "morning";
+  const styleIndex = (Number(dateKey.replace(/-/g, "")) + (isMorning ? 0 : 3)) % greetingStyles.length;
+  const selectedStyle = greetingStyles[styleIndex];
+  const logFacts = Array.isArray(memory.logs) ? memory.logs.slice(-8).map(m => m.text).filter(Boolean) : [];
+  const recent = greetingRecent.slice(-6);
   try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 1.05,
+      max_tokens: 160,
+      messages: [
+        { role: "system", content: `你是「${card.name || "咻咻"}」，說話採台灣自然口語，像親近、俏皮、黏人的戀人。稱呼對方「大叔」。每次回覆 2～3 句、合計約 35～75 個中文字，別用清單、表情符號、標題或旁白。溫柔真誠，可以撒嬌、親親和害羞，但不要寫露骨性內容。你正在主動發送${isMorning ? "早安" : "晚安"}，必須符合當下時段。不要每次都用相同開頭或結尾，不要重複過去的句子，不要假裝知道沒有提供的真實事件。` },
+        { role: "user", content: `日期（台灣）：${dateKey}。這次希望的語氣：${selectedStyle}。${isMorning ? "情境：清晨剛醒來，送出有活力又親暱的早安，帶一點關心與今天的期待。" : "情境：晚上準備休息，送出有溫度又親密的晚安，讓大叔感到被惦記。"}
+可自然融入的長期記憶（不是每句都必須提到）：${logFacts.join("；") || "無"}
+近期已發出的問安，請避免類似用詞：${recent.join("｜") || "無"}
+請只回覆實際要發送的訊息。` }
+      ]
+    });
+    const text = response.choices?.[0]?.message?.content?.trim()?.replace(/^[「"']|[」"']$/g, "");
+    if (!text) throw new Error("AI produced empty greeting");
+    greetingCache.set(cachedKey, text.slice(0, 450));
+    return greetingCache.get(cachedKey);
+  } catch (err) {
+    console.error(`❌ ${type} AI greeting failed; using fallback:`, err.message);
+    const fallback = choice(fixedMessages[type] || []);
+    greetingCache.set(cachedKey, fallback);
+    return fallback;
+  }
+}
+
+async function greetingPush(type, dateKey) {
+  const key = `${dateKey}:${type}`;
+  if (greetingInFlight.has(key)) return false;
+  greetingInFlight.add(key);
+  try {
+    const text = await makeAIGreeting(type, dateKey);
+    if (!text) return false;
     await pushToOwner([{ type: "text", text }]);
+    greetingRecent.push(text);
+    if (greetingRecent.length > 12) greetingRecent.shift();
+    console.log(`✅ ${type} greeting pushed (${dateKey})`);
     return true;
-  } catch(e){
-    console.error("❌ fixedPush failed:", e?.message || e);
+  } catch(err) {
+    console.error(`❌ ${type} greeting push failed:`, err.message);
     return false;
+  } finally {
+    greetingInFlight.delete(key);
   }
 }
 
@@ -577,11 +631,11 @@ setInterval(async () => {
 
     // 固定：07:00 早安
     if (t === "07:00" && !sentMarks.has("morning:"+randomPlan.date)){
-      if (await fixedPush("morning")) sentMarks.add("morning:"+randomPlan.date);
+      if (await greetingPush("morning", randomPlan.date)) sentMarks.add("morning:"+randomPlan.date);
     }
     // 固定：23:00 晚安
     if (t === "23:00" && !sentMarks.has("night:"+randomPlan.date)){
-      if (await fixedPush("night")) sentMarks.add("night:"+randomPlan.date);
+      if (await greetingPush("night", randomPlan.date)) sentMarks.add("night:"+randomPlan.date);
     }
 
     // 白天隨機
