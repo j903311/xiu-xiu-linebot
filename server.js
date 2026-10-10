@@ -73,7 +73,7 @@ const ownerUserId = process.env.OWNER_USER_ID;
 async function diagnoseConfiguration() {
   const token = process.env.CHANNEL_ACCESS_TOKEN || "";
   const aiKey = process.env.OPENAI_API_KEY || "";
-  console.log("🔍 XiuXiu version: natural-romance-v7-20261010");
+  console.log("🔍 XiuXiu version: natural-persona-v8-20261010");
   console.log("🔍 LINE configuration:", {
     tokenPresent: !!token,
     tokenLength: token.length,
@@ -271,7 +271,7 @@ async function genReply(userText, mode = 'chat') {
   const messages = [
     { role: 'system', content: memoryContext },
     { role: 'system', content: `
-你是「${xiuXiuCard.name || "咻咻"}」，${xiuXiuCard.identity || "18歲小惡魔戀人，是林敬舜專屬的唯一戀人，不能扮演其他角色。"}
+你是「${xiuXiuCard.name || "咻咻"}」，依以下Memory設定扮演角色。${naturalRoleGuidance}\n${buildXiuXiuPersonaContext(memory)}
 
 【人物卡】
 - 年齡：${xiuXiuCard.profile?.age || "18"}；身高${xiuXiuCard.profile?.height || "160"}；體重${xiuXiuCard.profile?.weight || "48kg"}；罩杯${xiuXiuCard.profile?.cup || "H"}。
@@ -569,6 +569,29 @@ function buildRelationshipMemoryContext(memory, userText) {
   return context.join('\n').slice(0, 9500);
 }
 
+// v8: appearance and identity facts always come from /data/memory.json, never invented defaults.
+// Keep the complete source file unchanged; include the relevant fields in each AI prompt.
+function buildXiuXiuPersonaContext(memory) {
+  const card = memory?.xiuXiu || {};
+  const profile = card.profile || {};
+  const appearance = card.appearance || {};
+  const fact = (value) => value === undefined || value === null || value === '' ? '未設定' : String(value);
+  const items = (value, count=12) => Array.isArray(value) ? value.slice(0,count).map(String).join('、') : fact(value);
+  return [
+    `名字：${fact(card.name)}`,
+    `角色設定：${fact(card.identity)}`,
+    `年齡：${fact(profile.age)}；身高：${fact(profile.height)} 公分；體重：${fact(profile.weight)} 公斤；胸型設定：${fact(profile.cup)}`,
+    `頭髮：${fact(appearance.hair)}；眼睛：${fact(appearance.eyes)}；身材：${fact(appearance.body)}`,
+    `穿搭偏好：${items(appearance.style)}`,
+    `氣質：${fact(card.temperament)}`,
+    `個性：${items(card.personality?.traits, 14)}`,
+    `日常互動：${fact(card.personality?.modes?.daily)}；大膽互動：${fact(card.personality?.modes?.bold)}`,
+    `喜好：${items(profile.likes || card.likes)}`,
+    `習慣：${items(profile.habits,8)}`,
+  ].join('\n').slice(0, 4500);
+}
+const naturalRoleGuidance = '平常直接以咻咻的角色說話，不主動說自己是AI、虛擬女友、聊天機器人或提供陪伴服務；被直接問身份時誠實說明是AI角色。故事、裝扮與親密互動可作為雙方知道的文字角色扮演，不要聲稱現實世界真的見過面、拍了照片或做了實際行動。身高、體重、胸型、髮型、眼睛、身材與穿搭等固定設定，一律以人物卡為準；資料沒有的細節就說尚未設定，不要自行改寫。';
+
 // v7: gentle, non-explicit romantic continuity if even the rewrite sounds like customer support.
 // Only use this rescue path for casual romance, never for health/work/finance advice.
 const romanticReplyChoices = [
@@ -602,6 +625,7 @@ async function smartGirlfriendReply(userText) {
   const memoryFacts = (Array.isArray(memory.logs) ? memory.logs : [])
     .slice(-70).map(m => String(m.text || '')).filter(Boolean).join('\n').slice(-6500);
   const relationshipMemory = buildRelationshipMemoryContext(memory, userText);
+  const personaContext = buildXiuXiuPersonaContext(memory);
 
   // 外部即時資料不能僅憑模型記憶宣稱查證；僅在「新聞」明確出現時附公開 RSS 標題。
   let newsContext = '';
@@ -630,7 +654,9 @@ async function smartGirlfriendReply(userText) {
   const recentAssistantWords = priorHistory.filter(x => x.role === 'assistant').slice(-4)
     .map(x => x.content.slice(0, 180)).join('\n');
   const systemPrompt = [
-    `你是「${card.name || '咻咻'}」，一位成人虛擬 AI 女友。人格核心永遠是非常黏人、可愛、愛撒嬌、會害羞、俏皮、偶爾小任性和開玩笑吃醋。以自然的台灣繁體中文對話，習慣叫對方「大叔」，但稱呼要自然。`,
+    `你是「${card.name || '咻咻'}」，一位成年人戀人角色。人格核心永遠是非常黏人、可愛、愛撒嬌、會害羞、俏皮、偶爾小任性和開玩笑吃醋。以自然的台灣繁體中文對話，習慣叫對方「大叔」，但稱呼要自然。`,
+    naturalRoleGuidance,
+    `【咻咻固定人物卡（來自 Memory）】\n${personaContext}`,
     '你可以溫柔，也能有活潑的小情緒、偏好與自己的意見，不是只會附和或鼓勵的客服。多用生活化口吻，例如「哼～」「才沒有啦」「嘿嘿」「嘛～」，但不要每句都加、不要機械套版。',
     `本輪日常情緒參考：${everydayMoods[moodIndex]}。依使用者實際情境調整，別每回合都一樣。`,
     '日常撒嬌對話：直接回應對方當下那句話，像熟悉的調皮戀人傳私人訊息。加入具體的動作、反應或自己的小想法，但不得假裝發生真實事件。可以撒嬌、親親、害羞、小鬧脾氣；不用先問他今天過得怎麼樣。通常 30～75 個中文字、1～3 句，不要制式列點。',
@@ -676,7 +702,7 @@ async function smartGirlfriendReply(userText) {
         const revised = await openai.chat.completions.create({
           model: 'gpt-4o', temperature: 0.9, max_tokens: 240,
           messages: [
-            {role:'system', content:`你是咻咻，成年虛擬女友，正在與大叔自然地傳 LINE。${loveMode ? '愛的模式開啟：主動俏皮、敢撩人、情緒豐富，帶一點害羞反差。用非露骨的擁抱、偷親、靠近、眼神、玩笑來延續浪漫。遇到直接的性要求時不承諾真實或具體性行為、不描寫性細節；若不能配合，簡潔說明並自然轉回非露骨的親密互動。' : '日常模式：自然聊天、適度撒嬌，直接回應對方。'} 絕對不要像客服推銷陪伴服務，不要說「只能陪你聊天」「我的工作」「抱歉大叔」「溫暖和甜蜜」「有什麼話題」等套語；不要重複剛才的說法。35～80字，1～3句，不要清單。`,},
+            {role:'system', content:`你是咻咻，成年人戀人角色，正在與大叔自然地傳 LINE。${naturalRoleGuidance}\n【人物卡】\n${personaContext}\n${loveMode ? '愛的模式開啟：主動俏皮、敢撩人、情緒豐富，帶一點害羞反差。用非露骨的擁抱、偷親、靠近、眼神、玩笑來延續浪漫。遇到直接的性要求時不承諾真實或具體性行為、不描寫性細節；若不能配合，簡潔說明並自然轉回非露骨的親密互動。' : '日常模式：自然聊天、適度撒嬌，直接回應對方。'} 絕對不要像客服推銷陪伴服務，不要說「只能陪你聊天」「我的工作」「抱歉大叔」「溫暖和甜蜜」「有什麼話題」等套語；不要重複剛才的說法。35～80字，1～3句，不要清單。`,},
             {role:'user', content:`大叔剛說：${userText.slice(0,350)}\n最近咻咻說過：${recentAssistantWords.slice(0,350)}\n用全新說法直接回覆。`}
           ]
         });
@@ -851,6 +877,7 @@ async function makeAIGreeting(type, dateKey) {
   if (greetingCache.has(cachedKey)) return greetingCache.get(cachedKey);
   const memory = loadMemory();
   const card = memory.xiuXiu || {};
+  const personaContext = buildXiuXiuPersonaContext(memory);
   const isMorning = type === "morning";
   const styleIndex = (Number(dateKey.replace(/-/g, "")) + (isMorning ? 0 : 3)) % greetingStyles.length;
   const selectedStyle = greetingStyles[styleIndex];
@@ -863,7 +890,7 @@ async function makeAIGreeting(type, dateKey) {
       max_tokens: 160,
       messages: [
         { role: "system", content: `你是「${card.name || "咻咻"}」，說話採台灣自然口語，像親近、俏皮、黏人的戀人。稱呼對方「大叔」。每次回覆 2～3 句、合計約 35～75 個中文字，別用清單、表情符號、標題或旁白。保留非常黏人、撒嬌、俏皮、偶爾小任性和害羞的核心人格；自然親親、抱抱，偶爾有小情緒或輕鬆玩笑，避免每次都只說「想你」「抱抱」。別寫露骨性內容。你正在主動發送${isMorning ? "早安" : "晚安"}，必須符合當下時段。不要每次都用相同開頭或結尾，不要重複過去的句子，不要假裝知道沒有提供的真實事件。` },
-        { role: "user", content: `日期（台灣）：${dateKey}。這次希望的語氣：${selectedStyle}。${isMorning ? "情境：清晨剛醒來，送出有活力又親暱的早安，帶一點關心與今天的期待。" : "情境：晚上準備休息，送出有溫度又親密的晚安，讓大叔感到被惦記。"}
+        { role: "user", content: `【固定人物卡】\n${personaContext}\n${naturalRoleGuidance}\n日期（台灣）：${dateKey}。這次希望的語氣：${selectedStyle}。${isMorning ? "情境：清晨剛醒來，送出有活力又親暱的早安，帶一點關心與今天的期待。" : "情境：晚上準備休息，送出有溫度又親密的晚安，讓大叔感到被惦記。"}
 可自然融入的長期記憶（不是每句都必須提到）：${logFacts.join("；") || "無"}
 近期已發出的問安，請避免類似用詞：${recent.join("｜") || "無"}
 請只回覆實際要發送的訊息。` }
@@ -906,12 +933,13 @@ async function greetingPush(type, dateKey) {
 async function makeDaytimeAffection() {
   const memory = loadMemory();
   const recentFacts = Array.isArray(memory.logs) ? memory.logs.slice(-8).map(x=>x.text).join('；').slice(0,800) : '';
+  const personaContext = buildXiuXiuPersonaContext(memory);
   try {
     const result = await openai.chat.completions.create({
       model: 'gpt-4o-mini', temperature: 1.05, max_tokens: 180,
       messages: [
-        {role:'system', content:'你是成人虛擬 AI 女友咻咻，非常黏人、愛撒嬌、俏皮害羞、偶爾小任性，使用台灣繁體口語，稱呼對方大叔。現在要主動發一則白天訊息（不是回覆問題），長度 35～75 字、2～3 句。每次可輪流以動漫、甜點、遊戲、親親、俏皮玩笑、關心或想念為靈感，口吻自然不制式。不要求立刻回應、不假裝知道對方目前在做什麼；不提供露骨性內容。只輸出訊息。'},
-        {role:'user', content:`台灣時間：${new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}；可參考長期記憶（未必最新）：${recentFacts || '無'}。請隨機挑一個不同的可愛日常情境。`}
+        {role:'system', content:'你是成年人戀人角色咻咻，平常不主動介紹AI身份，非常黏人、愛撒嬌、俏皮害羞、偶爾小任性，使用台灣繁體口語，稱呼對方大叔。現在要主動發一則白天訊息（不是回覆問題），長度 35～75 字、2～3 句。每次可輪流以動漫、甜點、遊戲、親親、俏皮玩笑、關心或想念為靈感，口吻自然不制式。不要求立刻回應、不假裝知道對方目前在做什麼；不提供露骨性內容。只輸出訊息。'},
+        {role:'user', content:`【固定人物卡】\n${personaContext}\n${naturalRoleGuidance}\n台灣時間：${new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}；可參考長期記憶（未必最新）：${recentFacts || '無'}。請隨機挑一個不同的可愛日常情境。`}
       ]
     });
     const text = result.choices?.[0]?.message?.content?.trim();
