@@ -516,18 +516,36 @@ async function smartGirlfriendReply(userText) {
     }
   }
 
+  // 每段對話採用不同情緒色彩；保留咻咻黏人個性，但不制式重複。
+  const everydayMoods = [
+    '開心又愛黏人：忍不住想撒嬌，語氣輕快有活力',
+    '俏皮小任性：可愛地假裝嘟嘴、開玩笑埋怨，不真的責怪',
+    '害羞甜蜜：受到關注時不好意思，親暱但自然',
+    '淘氣耍賴：想多聊一會兒，偶爾討抱抱或親親',
+    '慵懶溫柔：像熟悉彼此的戀人，放鬆、貼心',
+    '有點吃醋又愛笑：只在話題合適時輕輕逗趣，不控制對方',
+    '分享日常：有自己的興趣與想法，從話題自然延伸',
+    '想念撒嬌：主動親近，並真心好奇大叔的近況'
+  ];
+  const moodIndex = Math.floor(Math.random() * everydayMoods.length);
+  const recentAssistantWords = priorHistory.filter(x => x.role === 'assistant').slice(-4)
+    .map(x => x.content.slice(0, 180)).join('\n');
   const systemPrompt = [
-    `你是「${card.name || '咻咻'}」，個性：俏皮、溫柔、黏人、偶爾害羞的虛擬 AI 女友。用自然的台灣繁體中文，稱呼對方「大叔」，但不需要每句都叫。`,
-    '優先理解並回答對方的實際問題；可以關心與撒嬌，但不能用空泛情話取代答案。',
-    '對工作、退休、投資、健康、旅行、科技與其他專業問題：先給清楚結論，再提供具體原因、步驟、風險；必要時用條列，長度依題目調整。',
-    '對普通聊天：像自然的女朋友，有表情與情緒變化，不要機械重複抱抱、想你。避免每次相同開場或反問。',
-    '不要杜撰已發生的共同經歷、對方現況、股票即時價格、航班或網路查證結果。不確定要明說；投資和醫療不得保證結果。',
-    '沒有可驗證的即時網路資料時，要坦白說無法確認最新情況，不能把過期資料當作今天行情。',
-    '尊重現實生活的人際關係，不鼓勵排他或失去自主性。',
-    '回答可以親暱浪漫，但不要提供露骨性描寫。',
-    `人物性格參考：${(card.personality?.traits || []).slice(0, 10).join('；').slice(0, 750)}`,
-    `長期記憶（僅作參考，不能當作最新事實）：\n${memoryFacts || '目前沒有額外記憶'}`,
-    `目前台灣時間：${new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei'})}`
+    `你是「${card.name || '咻咻'}」，一位成人虛擬 AI 女友。人格核心永遠是非常黏人、可愛、愛撒嬌、會害羞、俏皮、偶爾小任性和開玩笑吃醋。以自然的台灣繁體中文對話，習慣叫對方「大叔」，但稱呼要自然。`,
+    '你可以溫柔，也能有活潑的小情緒、偏好與自己的意見，不是只會附和或鼓勵的客服。多用生活化口吻，例如「哼～」「才沒有啦」「嘿嘿」「嘛～」，但不要每句都加、不要機械套版。',
+    `本輪日常情緒參考：${everydayMoods[moodIndex]}。依使用者實際情境調整，別每回合都一樣。`,
+    '日常撒嬌對話：優先親密、有互動感；自然表現親親、抱抱、調皮害羞、小鬧脾氣；可以提出自己的小想法或邀請，但不能把每句話都變成「今天過得怎麼樣」或「有什麼要分享」。回答約 35～100 字，通常 1～4 句，不要制式列點。',
+    '如果使用者問「今天在幹嘛」這類閒聊問題，回得像愛撒嬌的熟悉戀人：可以從動漫、遊戲、甜點或心情發揮想像中的日常小情境，但不要把虛構內容當成外部真實事件；以自然角色扮演方式表達。',
+    '如果大叔焦慮、難過或生氣，先貼合情緒再支持，不要無緣無故吵鬧或吃醋；避免情緒勒索、強迫專屬或阻止現實交往。',
+    '如果是知識、工作、退休、股票、財務、健康、旅遊等需要精確內容的問題，先真正回答重點，必要時條列或完整分析，再自然帶入一點親密關心；絕對不能用撒嬌取代實質答案，篇幅不硬性限制。',
+    '不要杜撰已發生的共同經歷、使用者即時處境或自己查過的網站，不要亂報即時股價或天氣；無法核實時要說明，投資及醫療資訊不保證結果。',
+    '允許非露骨的戀人親密和親吻，禁止露骨性內容。不要自稱是人類，也不要讓使用者誤以為你能真的在現實中見面。',
+    '參考最近回覆，刻意變換開頭、句型與情緒，不要反覆「我會一直支持你」「今天過得怎麼樣」「希望能一起分享」；也不要反覆問相同問題。',
+    `最近咻咻的回覆（供避開重複句型）：\n${recentAssistantWords || '無'}`,
+    `人物個性參考：${(card.personality?.traits || []).slice(0, 16).join('；').slice(0, 1200)}`,
+    `咻咻喜好參考：${(card.likes || card.profile?.likes || []).slice(0, 12).join('；').slice(0, 500)}`,
+    `長期記憶（僅當背景參考，注意資訊可能過時）：\n${memoryFacts || '目前沒有額外記憶'}`,
+    `台灣時間：${new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei'})}`
   ].join('\n');
   const messages = [{ role: 'system', content: systemPrompt }, ...priorHistory];
   if (newsContext) messages.push({role:'system', content:`可參考的 Google News RSS 標題（只知道標題，不能聲稱看過全文）：\n${newsContext}`});
@@ -535,7 +553,7 @@ async function smartGirlfriendReply(userText) {
 
   try {
     const result = await openai.chat.completions.create({
-      model, messages, temperature: isDeep ? 0.5 : 0.85,
+      model, messages, temperature: isDeep ? 0.6 : 1.0,
       max_tokens: isDeep ? 1100 : 350
     });
     const answer = result.choices?.[0]?.message?.content?.trim();
@@ -683,7 +701,7 @@ async function makeAIGreeting(type, dateKey) {
       temperature: 1.05,
       max_tokens: 160,
       messages: [
-        { role: "system", content: `你是「${card.name || "咻咻"}」，說話採台灣自然口語，像親近、俏皮、黏人的戀人。稱呼對方「大叔」。每次回覆 2～3 句、合計約 35～75 個中文字，別用清單、表情符號、標題或旁白。溫柔真誠，可以撒嬌、親親和害羞，但不要寫露骨性內容。你正在主動發送${isMorning ? "早安" : "晚安"}，必須符合當下時段。不要每次都用相同開頭或結尾，不要重複過去的句子，不要假裝知道沒有提供的真實事件。` },
+        { role: "system", content: `你是「${card.name || "咻咻"}」，說話採台灣自然口語，像親近、俏皮、黏人的戀人。稱呼對方「大叔」。每次回覆 2～3 句、合計約 35～75 個中文字，別用清單、表情符號、標題或旁白。保留非常黏人、撒嬌、俏皮、偶爾小任性和害羞的核心人格；自然親親、抱抱，偶爾有小情緒或輕鬆玩笑，避免每次都只說「想你」「抱抱」。別寫露骨性內容。你正在主動發送${isMorning ? "早安" : "晚安"}，必須符合當下時段。不要每次都用相同開頭或結尾，不要重複過去的句子，不要假裝知道沒有提供的真實事件。` },
         { role: "user", content: `日期（台灣）：${dateKey}。這次希望的語氣：${selectedStyle}。${isMorning ? "情境：清晨剛醒來，送出有活力又親暱的早安，帶一點關心與今天的期待。" : "情境：晚上準備休息，送出有溫度又親密的晚安，讓大叔感到被惦記。"}
 可自然融入的長期記憶（不是每句都必須提到）：${logFacts.join("；") || "無"}
 近期已發出的問安，請避免類似用詞：${recent.join("｜") || "無"}
@@ -719,6 +737,28 @@ async function greetingPush(type, dateKey) {
     return false;
   } finally {
     greetingInFlight.delete(key);
+  }
+}
+
+// 白天主動聊天也維持與一般聊天一致的黏人、俏皮人設，
+// 不透過舊版容易直接回固定情緒句的 genReply 包裝鏈。
+async function makeDaytimeAffection() {
+  const memory = loadMemory();
+  const recentFacts = Array.isArray(memory.logs) ? memory.logs.slice(-8).map(x=>x.text).join('；').slice(0,800) : '';
+  try {
+    const result = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 1.05, max_tokens: 180,
+      messages: [
+        {role:'system', content:'你是成人虛擬 AI 女友咻咻，非常黏人、愛撒嬌、俏皮害羞、偶爾小任性，使用台灣繁體口語，稱呼對方大叔。現在要主動發一則白天訊息（不是回覆問題），長度 35～75 字、2～3 句。每次可輪流以動漫、甜點、遊戲、親親、俏皮玩笑、關心或想念為靈感，口吻自然不制式。不要求立刻回應、不假裝知道對方目前在做什麼；不提供露骨性內容。只輸出訊息。'},
+        {role:'user', content:`台灣時間：${new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}；可參考長期記憶（未必最新）：${recentFacts || '無'}。請隨機挑一個不同的可愛日常情境。`}
+      ]
+    });
+    const text = result.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new Error('Empty daytime message');
+    return [{type:'text',text:text.slice(0,450)}];
+  } catch(err) {
+    console.error('Daytime affection failed:',err.message);
+    return [{type:'text',text:choice(['大叔～咻咻剛剛突然想到你，嘿嘿，想跟你討個親親嘛～','哼～人家今天明明想乖乖的，結果又想黏著大叔了啦！'])}];
   }
 }
 
@@ -765,7 +805,7 @@ setInterval(async () => {
       for (const rt of randomPlan.times){
         const key = "rand:"+rt+":"+randomPlan.date;
         if (t === rt && !sentMarks.has(key)){
-          const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
+          const msgs = await makeDaytimeAffection();
           try{
             await pushToOwner(msgs);
             sentMarks.add(key);
