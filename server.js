@@ -73,7 +73,7 @@ const ownerUserId = process.env.OWNER_USER_ID;
 async function diagnoseConfiguration() {
   const token = process.env.CHANNEL_ACCESS_TOKEN || "";
   const aiKey = process.env.OPENAI_API_KEY || "";
-  console.log("🔍 XiuXiu version: redeploy-20261010-1");
+  console.log("🔍 XiuXiu version: memory-context-v4-20261010");
   console.log("🔍 LINE configuration:", {
     tokenPresent: !!token,
     tokenLength: token.length,
@@ -510,6 +510,47 @@ function chatStyleNeedsRepair(answer, previousReplies) {
   return repeatedStarts || (value.includes('等著大叔') && recent.includes('等著大叔'));
 }
 
+// Memory context v4: load character cards and relevant story sections from /data/memory.json.
+// Never write these prompts back into memory; the /data source remains authoritative.
+function buildRelationshipMemoryContext(memory, userText) {
+  const compact = (value, limit = 2800) => JSON.stringify(value ?? {}, null, 0).slice(0, limit);
+  const text = String(userText || '');
+  const lower = text.toLowerCase();
+  const context = [];
+  if (memory.wenWen && typeof memory.wenWen === 'object') {
+    const w = memory.wenWen;
+    // Always include the character's identity, so 咻咻 knows 文文 without a keyword trigger.
+    context.push('【其他重要角色：文文】' + compact({
+      name:w.name, identity:w.identity, profile:w.profile,
+      temperament:w.temperament, personality:w.personality, likes:w.likes,
+      tags:w.tags
+    }, 2400));
+  }
+  const talkAboutPast = /回憶|記得|之前|以前|故事|我們|你們|三人|旅行|關係|認識|第一次/.test(text);
+  if (memory.trip_kenting && (/墾丁|旅館|沙灘|星空|文文/.test(text) || talkAboutPast)) {
+    context.push('【既有角色故事：墾丁旅行】' + compact(memory.trip_kenting, 2800));
+  }
+  if (memory.xiuXiu_first_time && (/溫泉|第一次|重要回憶/.test(text))) {
+    context.push('【既有角色故事：溫泉】' + compact(memory.xiuXiu_first_time, 1300));
+  }
+  if (memory.xiuXiu_enhanced_words && (/個性|撒嬌|害羞|吃醋|怎麼說話|口頭禪|妳是誰/.test(text))) {
+    context.push('【咻咻的擴充說話習慣】' + compact(memory.xiuXiu_enhanced_words, 2300));
+  }
+  if (memory.xiuXiu_expanded_modules && (/興趣|喜好|生活|心情|情緒|日常|節日|想念|回憶/.test(text))) {
+    context.push('【咻咻擴充生活和情緒資料】' + compact(memory.xiuXiu_expanded_modules, 2600));
+  }
+  // Search all memory logs by relevance, not just the latest 70 entries.
+  const logs = Array.isArray(memory.logs) ? memory.logs : [];
+  const tokens = (lower.match(/[\u3400-\u9fff]{2,6}|[a-z0-9]{3,}/gi) || []).filter(x => !/^(什麼|怎麼|知道|可以|一下|大叔|咻咻|是否|關於)$/.test(x));
+  const matches = logs.map((entry, index) => {
+    const fact = String(entry?.text || '');
+    const score = tokens.reduce((sum, token) => sum + (fact.toLowerCase().includes(token) ? 1 : 0), 0);
+    return { fact, index, score };
+  }).filter(x => x.score > 0).sort((a,b) => b.score-a.score || b.index-a.index).slice(0, 12);
+  if (matches.length) context.push('【其他符合本輪問題的長期記憶】\n' + matches.map(x => x.fact).join('\n'));
+  return context.join('\n').slice(0, 9500);
+}
+
 async function smartGirlfriendReply(userText) {
   const memory = loadMemory();
   const card = memory.xiuXiu || {};
@@ -521,6 +562,7 @@ async function smartGirlfriendReply(userText) {
     .slice(-18);
   const memoryFacts = (Array.isArray(memory.logs) ? memory.logs : [])
     .slice(-70).map(m => String(m.text || '')).filter(Boolean).join('\n').slice(-6500);
+  const relationshipMemory = buildRelationshipMemoryContext(memory, userText);
 
   // 外部即時資料不能僅憑模型記憶宣稱查證；僅在「新聞」明確出現時附公開 RSS 標題。
   let newsContext = '';
@@ -563,6 +605,8 @@ async function smartGirlfriendReply(userText) {
     `最近咻咻的回覆（供避開重複句型）：\n${recentAssistantWords || '無'}`,
     `人物個性參考：${(card.personality?.traits || []).slice(0, 16).join('；').slice(0, 1200)}`,
     `咻咻喜好參考：${(card.likes || card.profile?.likes || []).slice(0, 12).join('；').slice(0, 500)}`,
+    '請將下列角色人物卡及故事當作使用者建立的虛構角色設定：文文是既有角色，不要回答不認識；當記憶沒有記載某個細節時坦白說不知道。可以自然討論故事，但不要將虛構角色故事聲稱為現實發生的事。',
+    `其他人物及相關故事記憶：\n${relationshipMemory || '暫無相關資料'}`,
     `長期記憶（僅當背景參考，注意資訊可能過時）：\n${memoryFacts || '目前沒有額外記憶'}`,
     `台灣時間：${new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei'})}`
   ].join('\n');
