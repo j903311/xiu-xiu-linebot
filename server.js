@@ -104,7 +104,33 @@ diagnoseConfiguration().catch(err => console.error("🔍 Diagnostics error:", er
 let loveMode = false;
 
 // ======= 短期對話紀錄 =======
-const HISTORY_FILE = './chatHistory.json';
+// Railway: attach a persistent Volume with mount path /data before deploying.
+// Without a mounted /data, use ephemeral fallback with an explicit warning.
+const PERSIST_DIR = process.env.PERSISTENT_DATA_DIR || '/data';
+let persistentReady = false;
+try {
+  persistentReady = fs.existsSync(PERSIST_DIR) && fs.statSync(PERSIST_DIR).isDirectory();
+  if (persistentReady) {
+    fs.accessSync(PERSIST_DIR, fs.constants.R_OK | fs.constants.W_OK);
+  }
+} catch { persistentReady = false; }
+const DATA_DIR = persistentReady ? PERSIST_DIR : '.';
+if (!persistentReady) console.error('⚠️ No writable Railway volume at '+PERSIST_DIR+'; new memories WILL NOT survive redeploy.');
+else console.log('✅ Persistent memory directory available:', PERSIST_DIR);
+function seedPersistentFile(filename) {
+  const target = `${DATA_DIR}/${filename}`;
+  if (persistentReady && !fs.existsSync(target) && fs.existsSync(`./${filename}`)) {
+    fs.copyFileSync(`./${filename}`, target);
+    console.log('🌱 Initialized persistent file:', filename);
+  }
+  return target;
+}
+function atomicWriteJson(filename, data) {
+  const tmp = `${filename}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(tmp, filename);
+}
+const HISTORY_FILE = seedPersistentFile('chatHistory.json');
 function loadHistory() {
   try {
     const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
@@ -114,11 +140,11 @@ function loadHistory() {
   }
 }
 function saveHistory(history) {
-  const trimmed = history.slice(-15);
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2));
+  const trimmed = history.slice(-30);
+  atomicWriteJson(HISTORY_FILE, trimmed);
 }
 function clearHistory() {
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify([], null, 2));
+  atomicWriteJson(HISTORY_FILE, []);
   console.log("🧹 chatHistory.json 已清空");
 }
 function delay(ms) {
@@ -126,7 +152,7 @@ function delay(ms) {
 }
 
 // ======= 長期記憶（含人物卡）=======
-const MEMORY_FILE = './memory.json';
+const MEMORY_FILE = seedPersistentFile('memory.json');
 function loadMemory() {
   try {
     const data = fs.readFileSync(MEMORY_FILE, 'utf-8');
@@ -136,20 +162,49 @@ function loadMemory() {
   }
 }
 function saveMemory(memory) {
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+  atomicWriteJson(MEMORY_FILE, memory);
 }
-async function checkAndSaveMemory(userText) {
-  const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
-  if (keywords.some(k => userText.includes(k))) {
+// Extract stable personal facts and plans from ordinary LINE conversation.
+// Queue operations so multiple incoming messages cannot overwrite each other's facts.
+let memoryTaskQueue = Promise.resolve();
+function rememberAfterReply(userText, assistantText = '') {
+  memoryTaskQueue = memoryTaskQueue.catch(() => {}).then(async () => {
+    const plain = String(userText || '').trim();
+    if (plain.length < 4 || plain.length > 3000) return;
+    if (/^(查記憶|長期記憶|刪掉記憶|開啟咻咻|關閉咻咻)/.test(plain)) return;
     const memory = loadMemory();
-    if (!memory.logs) memory.logs = [];
-    memory.logs.push({ text: userText, time: new Date().toISOString() });
-    saveMemory(memory);
-    console.log("💾 記憶新增:", userText);
-
-    // ✅ 新增：即時推播確認
-    await pushToOwner([{ type: "text", text: "大叔～咻咻已經記住囉！" }]);
-  }
+    const existing = Array.isArray(memory.logs) ? memory.logs : [];
+    const recent = existing.slice(-70).map(x => String(x.text || '')).join('\n').slice(-4500);
+    const extraction = await openai.chat.completions.create({
+      model: 'gpt-4o-mini', temperature: 0.1, max_tokens: 300,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `你是個人記憶整理器。只擷取使用者明確陳述、未來聊天實際有幫助的重要事實、偏好、長期計畫、決定、重要人際互動與待追蹤進度。不要儲存 API Key、密碼、憑證、帳號或一次性閒聊；不要推測。遇到「以前...現在...」只保留最新且加時間背景。若和舊記憶重複或資訊已過時，輸出 remove（舊記憶原文），再輸出 add。敏感個人資訊只在使用者明確請求記住時保存。僅回 JSON：{"add":["事實1"],"remove":["舊記憶原文"]}；最多新增三條，每條 90 字內，沒有重要資訊時回空陣列。` },
+        { role: 'user', content: `已知近期記憶：\n${recent || '無'}\n\n使用者剛說：${plain}\n\n助理回答（只供理解語境，不作為使用者事實）：${String(assistantText).slice(0, 350)}` }
+      ]
+    });
+    let extracted;
+    try { extracted = JSON.parse(extraction.choices?.[0]?.message?.content || '{}'); }
+    catch { return; }
+    const removed = new Set(Array.isArray(extracted.remove) ? extracted.remove.map(String) : []);
+    let logs = existing.filter(m => !removed.has(String(m.text || '')));
+    const additions = Array.isArray(extracted.add) ? extracted.add.slice(0, 3) : [];
+    let added = 0;
+    for (const v of additions) {
+      if (typeof v !== 'string') continue;
+      const fact = v.trim().slice(0, 90);
+      if (fact.length < 4 || /(?:sk-proj-|BEGIN PRIVATE KEY|API.?KEY|access.token|密碼|驗證碼|銀行帳號)/i.test(fact)) continue;
+      if (logs.some(m => String(m.text || '').trim() === fact)) continue;
+      logs.push({ text: fact, time: new Date().toISOString(), source: 'LINE-ai-summary' });
+      added++;
+    }
+    if (added || logs.length !== existing.length) {
+      memory.logs = logs.slice(-300);
+      saveMemory(memory);
+      console.log(`🧠 Memory updated: +${added}; total ${memory.logs.length}`);
+    }
+  }).catch(err => console.error('❌ AI memory extraction failed:', err.message));
+  return memoryTaskQueue;
 }
 
 // ======= Google Maps 地點搜尋 =======
@@ -445,9 +500,9 @@ async function smartGirlfriendReply(userText) {
   const model = isDeep ? 'gpt-4o' : 'gpt-4o-mini';
   const priorHistory = loadHistory()
     .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-    .slice(-12);
+    .slice(-18);
   const memoryFacts = (Array.isArray(memory.logs) ? memory.logs : [])
-    .slice(-25).map(m => String(m.text || '')).filter(Boolean).join('\n').slice(0, 3500);
+    .slice(-70).map(m => String(m.text || '')).filter(Boolean).join('\n').slice(-6500);
 
   // 外部即時資料不能僅憑模型記憶宣稱查證；僅在「新聞」明確出現時附公開 RSS 標題。
   let newsContext = '';
@@ -547,11 +602,12 @@ app.post('/webhook', async (req, res) => {
           }
 
           
-          await checkAndSaveMemory(userText);
           const replyMessages = await smartGirlfriendReply(userText);
 
           try {
             await safeReplyMessage(ev.replyToken, replyMessages, userText);
+            // Non-blocking: user already got the answer; remember important facts asynchronously.
+            void rememberAfterReply(userText, replyMessages.map(m => m.text || '').join(' '));
           } catch (err) {
             console.error("❌ Reply failed:", err.originalError?.response?.data || err.message);
           }
