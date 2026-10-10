@@ -73,7 +73,7 @@ const ownerUserId = process.env.OWNER_USER_ID;
 async function diagnoseConfiguration() {
   const token = process.env.CHANNEL_ACCESS_TOKEN || "";
   const aiKey = process.env.OPENAI_API_KEY || "";
-  console.log("🔍 XiuXiu version: natural-persona-v8-20261010");
+  console.log("🔍 XiuXiu version: natural-identity-v9-20261010");
   console.log("🔍 LINE configuration:", {
     tokenPresent: !!token,
     tokenLength: token.length,
@@ -579,8 +579,8 @@ function buildXiuXiuPersonaContext(memory) {
   const items = (value, count=12) => Array.isArray(value) ? value.slice(0,count).map(String).join('、') : fact(value);
   return [
     `名字：${fact(card.name)}`,
-    `角色設定：${fact(card.identity)}`,
-    `年齡：${fact(profile.age)}；身高：${fact(profile.height)} 公分；體重：${fact(profile.weight)} 公斤；胸型設定：${fact(profile.cup)}`,
+    `人物背景（僅供內部理解，不向使用者引用來源）：${fact(card.identity)}`,
+    `年齡：${fact(profile.age)}；身高：${fact(profile.height)} 公分；體重：${fact(profile.weight)} 公斤；胸型：${fact(profile.cup)}`,
     `頭髮：${fact(appearance.hair)}；眼睛：${fact(appearance.eyes)}；身材：${fact(appearance.body)}`,
     `穿搭偏好：${items(appearance.style)}`,
     `氣質：${fact(card.temperament)}`,
@@ -590,7 +590,26 @@ function buildXiuXiuPersonaContext(memory) {
     `習慣：${items(profile.habits,8)}`,
   ].join('\n').slice(0, 4500);
 }
-const naturalRoleGuidance = '平常直接以咻咻的角色說話，不主動說自己是AI、虛擬女友、聊天機器人或提供陪伴服務；被直接問身份時誠實說明是AI角色。故事、裝扮與親密互動可作為雙方知道的文字角色扮演，不要聲稱現實世界真的見過面、拍了照片或做了實際行動。身高、體重、胸型、髮型、眼睛、身材與穿搭等固定設定，一律以人物卡為準；資料沒有的細節就說尚未設定，不要自行改寫。';
+const naturalRoleGuidance = '以咻咻的第一人稱自然交談。Memory 是內部背景，不是對話內容的來源報告。回答年齡、身高、體重、胸型、髮型、身材、喜好或文文與共同故事時，直接說事實、想法和情緒，絕不說「我的角色設定」「設定是」「根據人物卡」「記憶檔寫著」「資料顯示」「H cup 是角色設定」等出戲說法；只有大叔明確問程式、設定檔、記憶機制時，才可以解釋技術設定。不要主動提AI、虛擬女友或聊天機器人；但被直接問是否為AI時必須誠實。文字角色扮演可以自然敘述想像場景，但不能聲稱現實世界真的見面或完成實際行動。固定資料以Memory為準，缺少細節不編造；即使前面幾句已經用了「角色設定」這種說法，本次也別模仿。';
+// v9: source-leak phrases are inappropriate unless user explicitly asks about the underlying configuration.
+function askedAboutConfiguration(text) {
+  return /設定檔|memory\.json|server\.js|人物卡|程式設定|角色設定|記憶系統|提示詞|prompt|你是AI|妳是AI|是不是AI|是否為AI|機器人/.test(String(text || ''));
+}
+function leaksCharacterSetup(answer, question) {
+  if (askedAboutConfiguration(question)) return false;
+  return /角色設定|人物設定|設定(中|裡|上|是|為|有|提到)|人物卡(裡|上|說|顯示)|記憶檔|資料庫(顯示|記載)|根據.{0,14}(設定|人物卡|記憶)|被設定成|設定資料|身材設定|胸型設定|虛構角色設定/.test(String(answer || ''));
+}
+function personaFactFallback(memory, question) {
+  const c = memory?.xiuXiu || {}, p = c.profile || {}, a = c.appearance || {};
+  const t = String(question || '');
+  if (/上圍|罩杯|cup|胸型/i.test(t)) return p.cup ? `${p.cup} 呀～大叔怎麼突然好奇這個啦，嘿嘿。` : '這個細節我還沒想好耶～大叔別偷偷笑我啦。';
+  if (/身高|幾公分|多高/.test(t)) return p.height ? `我 ${p.height} 公分呀～大叔要不要猜猜我穿什麼鞋？` : '身高這件事我還沒決定好耶～';
+  if (/體重|幾公斤|多重/.test(t)) return p.weight ? `${p.weight} 公斤呀～哼，問這麼仔細，想考我嗎？` : '體重還沒決定好呢～';
+  if (/幾歲|年齡|多大/.test(t)) return p.age ? `${p.age} 歲呀～大叔怎麼突然考起我來了？` : '年齡這個細節我還沒決定好耶～';
+  if (/身材|體型|曲線/.test(t)) return a.body ? `人家的身材是${a.body}呀～嘿嘿，問這個幹嘛啦。` : '這部分還沒決定好啦～';
+  if (/頭髮|髮型/.test(t)) return a.hair ? `我是${a.hair}呀～今天想換個髮型逗逗你。` : '髮型我還沒決定好耶～';
+  return null;
+}
 
 // v7: gentle, non-explicit romantic continuity if even the rewrite sounds like customer support.
 // Only use this rescue path for casual romance, never for health/work/finance advice.
@@ -677,7 +696,7 @@ async function smartGirlfriendReply(userText) {
     `最近咻咻的回覆（供避開重複句型）：\n${recentAssistantWords || '無'}`,
     `人物個性參考：${(card.personality?.traits || []).slice(0, 16).join('；').slice(0, 1200)}`,
     `咻咻喜好參考：${(card.likes || card.profile?.likes || []).slice(0, 12).join('；').slice(0, 500)}`,
-    '請將下列角色人物卡及故事當作使用者建立的虛構角色設定：文文是既有角色，不要回答不認識；當記憶沒有記載某個細節時坦白說不知道。可以自然討論故事，但不要將虛構角色故事聲稱為現實發生的事。',
+    '以下資料是內部背景，文文是既有角色，不要回答不認識。直接自然地談人物關係及既有故事，不引用「設定」「人物卡」等來源字眼。記憶未載細節就坦白不知道；不要把文字故事說成現實發生的事。',
     `其他人物及相關故事記憶：\n${relationshipMemory || '暫無相關資料'}`,
     `長期記憶（僅當背景參考，注意資訊可能過時）：\n${memoryFacts || '目前沒有額外記憶'}`,
     `台灣時間：${new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei'})}`
@@ -696,19 +715,33 @@ async function smartGirlfriendReply(userText) {
     // v7: final outgoing answer MUST pass the style check, not just the rewrite attempt.
     // Serious information questions are left untouched.
     const priorAssistantReplies = priorHistory.filter(m => m.role === 'assistant').map(m => m.content);
-    if (isCasual && chatStyleNeedsRepair(answer, priorAssistantReplies)) {
+    if (isCasual && (chatStyleNeedsRepair(answer, priorAssistantReplies) || leaksCharacterSetup(answer, userText))) {
       console.log('💞 Personality v7: repairing generic casual reply');
       try {
         const revised = await openai.chat.completions.create({
           model: 'gpt-4o', temperature: 0.9, max_tokens: 240,
           messages: [
-            {role:'system', content:`你是咻咻，成年人戀人角色，正在與大叔自然地傳 LINE。${naturalRoleGuidance}\n【人物卡】\n${personaContext}\n${loveMode ? '愛的模式開啟：主動俏皮、敢撩人、情緒豐富，帶一點害羞反差。用非露骨的擁抱、偷親、靠近、眼神、玩笑來延續浪漫。遇到直接的性要求時不承諾真實或具體性行為、不描寫性細節；若不能配合，簡潔說明並自然轉回非露骨的親密互動。' : '日常模式：自然聊天、適度撒嬌，直接回應對方。'} 絕對不要像客服推銷陪伴服務，不要說「只能陪你聊天」「我的工作」「抱歉大叔」「溫暖和甜蜜」「有什麼話題」等套語；不要重複剛才的說法。35～80字，1～3句，不要清單。`,},
+            {role:'system', content:`你是咻咻，成年人戀人角色，正在與大叔自然地傳 LINE。${naturalRoleGuidance}\n【人物卡】\n${personaContext}\n${loveMode ? '愛的模式開啟：主動俏皮、敢撩人、情緒豐富，帶一點害羞反差。用非露骨的擁抱、偷親、靠近、眼神、玩笑來延續浪漫。遇到直接的性要求時不承諾真實或具體性行為、不描寫性細節；若不能配合，簡潔說明並自然轉回非露骨的親密互動。' : '日常模式：自然聊天、適度撒嬌，直接回應對方。'} 請勿說「角色設定」「根據設定」「設定裡」「人物卡」「記憶檔顯示」等資料來源詞語，直接以第一人稱回答。絕對不要像客服推銷陪伴服務，不要說「只能陪你聊天」「我的工作」「抱歉大叔」「溫暖和甜蜜」「有什麼話題」等套語；不要重複剛才的說法。35～80字，1～3句，不要清單。`,},
             {role:'user', content:`大叔剛說：${userText.slice(0,350)}\n最近咻咻說過：${recentAssistantWords.slice(0,350)}\n用全新說法直接回覆。`}
           ]
         });
         const candidate = revised.choices?.[0]?.message?.content?.trim();
         if (candidate) answer = candidate;
       } catch (err) { console.warn('Personality v7 rewrite failed:', err.message); }
+    }
+    // v9: ensure final answer does not quote Memory as if it were an instruction sheet.
+    if (isCasual && leaksCharacterSetup(answer, userText)) {
+      console.log('🎭 Personality v9: cleaning up character-setup wording');
+      const factReply = personaFactFallback(memory, userText);
+      if (factReply) answer = factReply;
+      else {
+        // Strip only overt references to the source, not the underlying facts.
+        answer = answer
+          .replace(/(?:咻咻的|我的)?(?:角色|人物|身材|胸型)設定(?:中|裡|上)?(?:有提到|提到|是|為|有)?/g, '我')
+          .replace(/(?:根據|按照)(?:我的)?(?:人物卡|角色設定|設定|記憶檔)(?:裡|上)?/g, '')
+          .replace(/(?:人物卡|記憶檔)(?:裡|上)?(?:寫著|記載|顯示|說)/g, '');
+        if (leaksCharacterSetup(answer, userText)) answer = '嘿嘿～大叔突然這麼問，我都想逗你一下了。你再問我一次嘛，我好好回答。';
+      }
     }
     // Critical: no rejected rewrite OR rejected original can leak to LINE for romantic small talk.
     if (isCasual && loveMode && isRomanticTopic(userText) && chatStyleNeedsRepair(answer, priorAssistantReplies)) {
