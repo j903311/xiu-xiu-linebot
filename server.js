@@ -24,7 +24,7 @@ async function searchWeb(query) {
     // Step 2: RSS 有 → 交給 OpenAI 總結
     if (rssResult) {
       const completion = await openai.chat.completions.create({
-        model: "gemini-2.5-flash-lite",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。請注意：1) 使用台灣常用口語，不要使用大陸用語。2) 每次回覆20~50字，分成1–3句，句型可隨機：陳述句、問句或動作描寫。3) 若有記憶，請自然融入，不要生硬。4) 偶爾加入一點猶豫或思考感，像真人在聊天。5) 絕對不要使用任何 emoji 或符號。" },
           { role: "user", content: rssResult }
@@ -37,7 +37,7 @@ async function searchWeb(query) {
 
     // Step 3: 沒有 RSS → 直接問 OpenAI
     const completion = await openai.chat.completions.create({
-      model: "gemini-2.5-flash-lite",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "你是咻咻，要用可愛、黏人的女友語氣回答大叔。請注意：1) 使用台灣常用口語，不要使用大陸用語。2) 每次回覆20~50字，分成1–3句，句型可隨機：陳述句、問句或動作描寫。3) 若有記憶，請自然融入，不要生硬。4) 偶爾加入一點猶豫或思考感，像真人在聊天。5) 絕對不要使用任何 emoji 或符號。" },
         { role: "user", content: `請幫我回答：「${query}」` }
@@ -66,11 +66,7 @@ const lineClient = new LineClient({
   channelSecret: process.env.CHANNEL_SECRET,
 });
 
-// Gemini API 使用 Google 官方的 OpenAI 相容介面；沿用現有套件。
-const openai = new OpenAI({
-  apiKey: process.env.GOOGLE_AI_API_KEY,
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/'
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ownerUserId = process.env.OWNER_USER_ID;
 
 // ======= 愛的模式（開關） =======
@@ -85,7 +81,7 @@ try {
     dataDir = PERSIST_DIR;
   }
 } catch (e) { console.error('Persistent directory unavailable:', e.message); }
-console.log('🌱 XiuXiu budget-girlfriend-v3.1-gemini; memory directory:', dataDir);
+console.log('🌱 XiuXiu budget-girlfriend-v3.1; memory directory:', dataDir);
 if (dataDir === '.') console.warn('⚠️ /data 不可寫，重新部署可能失去新記憶');
 function persistentFile(name) {
   const path = `${dataDir}/${name}`;
@@ -237,7 +233,7 @@ async function genReply(userText, mode='chat') {
   try {
     const messages=[{role:'system',content:prompt},...history,{role:'user',content:userText}];
     const response=await openai.chat.completions.create({
-      model:'gemini-2.5-flash-lite', messages, temperature: serious?0.5:0.95,
+      model:'gpt-4o-mini', messages, temperature: serious?0.5:0.95,
       max_tokens:serious?650:180
     });
     let answer=response.choices?.[0]?.message?.content?.trim();
@@ -311,9 +307,9 @@ async function handleImageMessage(event) {
     for await (const chunk of stream) chunks.push(chunk);
     const buffer = Buffer.concat(chunks);
 
-    // ✅ 使用 gemini-2.5-flash-lite（vision）像人眼一樣描述圖片
+    // ✅ 使用 gpt-4o-mini（vision）像人眼一樣描述圖片
     const completion = await openai.chat.completions.create({
-      model: "gemini-2.5-flash-lite",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "user",
