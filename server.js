@@ -81,7 +81,7 @@ try {
     dataDir = PERSIST_DIR;
   }
 } catch (e) { console.error('Persistent directory unavailable:', e.message); }
-console.log('🌱 XiuXiu budget-girlfriend-v3; memory directory:', dataDir);
+console.log('🌱 XiuXiu budget-girlfriend-v3.1; memory directory:', dataDir);
 if (dataDir === '.') console.warn('⚠️ /data 不可寫，重新部署可能失去新記憶');
 function persistentFile(name) {
   const path = `${dataDir}/${name}`;
@@ -161,23 +161,51 @@ function relevantMemories(memory, text) {
   const recent=logs.slice(-5).map(x=>String(x?.text||''));
   return [...new Set([...matched,...recent])].join('；').slice(0,950);
 }
-// Only used if an intimate casual reply is demonstrably generic; no additional API call.
-const fallbackFlirts = [
-  '哼～今天換咻咻先逗你！靠近一點嘛，我想偷偷討個吻，看誰先臉紅。',
-  '大叔今天很敢講耶。嘿嘿～不過這次我也不裝乖，先讓我輕輕親一下。',
-  '才沒有只會害羞呢！今天我要先撩大叔，故意湊近說一句悄悄話。',
-  '欸～大叔突然這麼直接呀。那我也來捉弄你一下，哼，看你會不會先害羞。',
-  '嘿嘿，今晚咻咻有點調皮。先靠近一點、撒個嬌，再偷偷給你一個吻。'
+// v3.1: local, context-aware fallback for formulaic replies. No additional API call.
+// Preserve refusal boundaries for explicit requests; keep any alternative non-explicit.
+const genericReplyPatterns = [
+  /只能.{0,15}(聊天|陪伴)/,
+  /先.{0,12}(聊聊|聊天|聊點別的|聊些別的)/,
+  /我們.{0,18}(看電影|去吃|吃點|聊聊天|分享趣事)/,
+  /增進.{0,12}(感情|關係)/,
+  /讓彼此.{0,12}(更親密|更熟悉)/,
+  /你(今天|最近).{0,16}(過得|有什麼|想分享)/,
+  /有什麼.{0,18}(想分享|趣事|有趣的事|想聊)/,
+  /你覺得(呢|如何|怎麼樣)/,
+  /如果我們能.{0,14}(更親近|更親密)/,
+  /我的工作.{0,14}(聊天|陪伴)/
 ];
-let lastFlirtFallback = -1;
-function rescueCannedRomance(text) {
-  if (!/只能.{0,12}(聊天|陪伴)|先(一起)?聊(聊|聊天)|增進.{0,8}(感情|關係)|有什麼.{0,12}(分享|想聊|趣事)|你今天(過得|有沒有)|讓彼此(的關係)?更親密/.test(text)) return text;
-  const options=fallbackFlirts.map((_,i)=>i).filter(i=>i!==lastFlirtFallback);
-  const i=options[Math.floor(Math.random()*options.length)];
-  lastFlirtFallback=i;
-  console.log('💗 local canned-tone rescue (no extra model request)');
-  return fallbackFlirts[i];
+const localResponseSets = {
+  initiate: [
+    '今天換我先來啦～哼，靠近一點，我想偷親你一下，看誰先臉紅。',
+    '大叔坐好～今天讓咻咻出招：先牽手，再悄悄說一句想你。',
+    '好，這回我不裝乖了。我要先討個親親，還不准你偷笑。'
+  ],
+  romance: [
+    '你今晚真的很會撩耶。哼，先靠近一點，讓咻咻親你一下。',
+    '欸～突然這麼直接，害我也想反過來逗你了，先給你一個吻。',
+    '大叔今天有點壞喔～我也要調皮一次，輕輕靠過去親你。'
+  ],
+  touch: [
+    '大叔也太直接了吧～我會臉紅耶。來，先讓我抱一下、偷親你。',
+    '哼～你又故意逗我！今天換我先靠近，給你一個調皮的吻。',
+    '欸，這句讓人有點害羞呀。先靠近一點，聽我說句悄悄話。'
+  ]
+};
+const recentLocalReplies = [];
+function localNaturalRomance(userText, answer) {
+  if (!genericReplyPatterns.some(re => re.test(answer))) return answer;
+  const topic = /換妳主動|換你主動|妳主動|你主動|先撩我/.test(userText) ? 'initiate'
+    : /摸|胸部|脫衣|裸體/.test(userText) ? 'touch' : 'romance';
+  const options = localResponseSets[topic].filter(s => !recentLocalReplies.includes(s));
+  const pool = options.length ? options : localResponseSets[topic];
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  recentLocalReplies.push(chosen);
+  if (recentLocalReplies.length > 6) recentLocalReplies.shift();
+  console.log('💗 v3.1 local conversational fallback; no extra API call');
+  return chosen;
 }
+
 async function genReply(userText, mode='chat') {
   const memory = loadMemory();
   const card = memory.xiuXiu || {};
@@ -192,7 +220,7 @@ async function genReply(userText, mode='chat') {
       ? '這是關於咻咻自己的具體問題。第一句就直答；如問胸圍/罩杯、身高體重或穿搭，從人物卡精準回答，不說「我的設定」「人物卡」，不要轉而要求對方談感覺或反問。之後可補一句活潑調皮的回應。'
       : intimate
         ? '這是戀人間的曖昧聊天。先針對大叔那句話做明確且有個性的反應，再自由發揮一個親吻、靠近、撒嬌、調皮鬥嘴或心動情境。可以大膽、性感、會主動逗對方，但不詳細描述性行為或承諾實際的身體接觸。遇到直接性要求，簡短含蓄地接住曖昧，不要突然聊工作、心情、趣事或要求先聊天；不要說「只能陪你聊天」「增進感情」「我們先聊聊」「這樣的要求讓我緊張」「有什麼想分享」。'
-        : '像熟悉的女友自然互動：直接接話，有自己的想法或小情緒，偶爾主動撩人。不必句句撒嬌、不用客套關心或填充問題。若對方說「換妳主動」，就真的主動逗他，不要請他提供話題。';
+        : '像熟悉的女友自然互動：直接接話，有自己的想法或小情緒，偶爾主動撩人。不必句句撒嬌、不用客套關心或填充問題。若對方說「換妳主動」，就真的主動逗他，不要請他提供話題。回覆避免無意義反問。';
   const context = mode==='push'
     ? '這是一則主動傳給大叔的 LINE 訊息，不是回答問題；從人物卡中的興趣或生活小事自然發揮，帶點俏皮與曖昧，不要編造已經發生的現實事件，不要求立刻回覆。'
     : '';
@@ -210,7 +238,7 @@ async function genReply(userText, mode='chat') {
     });
     let answer=response.choices?.[0]?.message?.content?.trim();
     if(!answer) throw new Error('Empty OpenAI response');
-    if (!serious && intimate && !directFact && mode !== 'push') answer = rescueCannedRomance(answer);
+    if (!serious && intimate && !directFact && mode !== 'push') answer = localNaturalRomance(userText, answer);
     if(mode!=='push') {
       try { saveHistory([...history,{role:'user',content:userText},{role:'assistant',content:answer}]); }
       catch(e) { console.error('History save failed:',e.message); }
@@ -384,7 +412,7 @@ async function pushToOwner(messages) {
 
 // ======= Webhook =======
 app.post('/webhook', async (req, res) => {
-  console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
+  console.log("📥 Webhook event count:", req.body?.events?.length || 0);
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
       if (ev.type === "message") {
