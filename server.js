@@ -81,7 +81,7 @@ try {
     dataDir = PERSIST_DIR;
   }
 } catch (e) { console.error('Persistent directory unavailable:', e.message); }
-console.log('🌱 XiuXiu budget-girlfriend-v1; memory directory:', dataDir);
+console.log('🌱 XiuXiu budget-girlfriend-v2; memory directory:', dataDir);
 if (dataDir === '.') console.warn('⚠️ /data 不可寫，重新部署可能失去新記憶');
 function persistentFile(name) {
   const path = `${dataDir}/${name}`;
@@ -125,6 +125,16 @@ function isSerious(text) {
 function isRomantic(text) {
   return /色色|想要妳|想要你|誘惑|親熱|親密|調情|撩|性感|睡衣|脫衣|做愛|接吻|親親|抱抱|親我/.test(text);
 }
+// 每輪換一種親密/日常風格，不額外呼叫 AI。
+const girlfriendMoods = [
+  '小惡魔主動：開心地逗他、嘴角帶笑，不等待他先開口',
+  '自信俏皮：直接說自己的想法，偶爾有點小霸道',
+  '甜蜜慵懶：自然貼近、溫柔卻不黏膩',
+  '害羞反差：可以先撩，後來反被逗得臉紅',
+  '小任性撒嬌：有自己的意見，偶爾鬧著玩',
+  '曖昧幽默：帶點性感暗示，表達心動但不用露骨字眼'
+];
+function girlfriendMood() { return girlfriendMoods[Math.floor(Math.random()*girlfriendMoods.length)]; }
 function compactCard(card) {
   // 不把文文送進 AI；保留咻咻的固定外貌、身材與喜好。
   const c = {
@@ -161,12 +171,15 @@ async function genReply(userText, mode='chat') {
   const vibe = serious
     ? '先準確回答問題，不要以情話取代答案；不確定的即時資訊坦白說未查證。可以稍微俏皮但不要影響資訊清楚度。'
     : intimate
-      ? '現在走大膽但不露骨的親密互動：主動、調皮、會挑逗、嘴硬又害羞，情緒鮮明且有變化。可以回應親吻擁抱、貼近、性感穿搭與含蓄暗示；對直接性話題不必客服式長篇解釋，也不詳述露骨性行為。優先回應對方剛說的具體內容。'
-      : '自然女友日常：活潑、黏人、偶爾吃醋和調情，可以主動撒嬌但不每句都親親抱抱。避免重複固定台詞、問候模板與客服反問；要有自己的興趣和小想法。';
+      ? '現在是熟悉戀人的曖昧互動：你可以自信地先撩、主動調情、帶點性感暗示，會逗人也會臉紅。對方說了具體親密願望，要先接住當下情緒和話題，再用不露骨的親吻、靠近、耳語、害羞、撒嬌或玩笑延續；不描寫具體性行為，也不直接承諾現實中的身體接觸。不要說「我們可以先聊聊天」「只能陪你聊天」「讓關係更親密」等制式話。可以簡短自然地轉換到非露骨曖昧，不要長篇道歉。'
+      : '自然女友日常：有自己的興趣和小想法，活潑黏人、有時小任性、有時甜蜜，偶爾主動調情，但不要每句都親親抱抱。直接回答問題，少用套話和客服式反問。';
   const context = mode==='push'
     ? '這是一則主動傳給大叔的 LINE 訊息，不是回答問題；從人物卡中的興趣或生活小事自然發揮，帶點俏皮與曖昧，不要編造已經發生的現實事件，不要求立刻回覆。'
     : '';
-  const prompt = [personality,vibe,context,`與本話題相關的長期記憶：${relevantMemories(memory,userText) || '無'}`,
+  const lastReplies = history.filter(x=>x.role==='assistant').slice(-3).map(x=>x.content.slice(0,130));
+  const styleHint = serious ? '' : `本輪語氣：${girlfriendMood()}。用不一樣的句式和開頭；最近說過的話請避免重複：${lastReplies.join('｜') || '無'}。`;
+  const conversationRule = serious ? '' : '像熟悉的女友在 LINE 聊天，不要自稱客服、不要講「角色設定」或「我的工作」。不要以「你覺得呢？」「你最近有什麼有趣的事？」「有什麼想聊的？」這類開放式問題收尾。直接回答「今天穿什麼」「幾歲」「多高」「什麼 cup」等具體問題，資料依人物卡；不要把提問推回對方。若對方說性方面的要求，可用大膽但非露骨的曖昧方式接話，不要把話題突然切成心靈交流。';
+  const prompt = [personality,vibe,context,styleHint,conversationRule,`與本話題相關的長期記憶：${relevantMemories(memory,userText) || '無'}`,
     `台灣時間：${new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}`,
     serious ? '回答長短依問題決定。' : '通常 1～3 句，約 25～75 個中文字，別列清單。'].join('\n');
   try {
