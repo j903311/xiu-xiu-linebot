@@ -81,7 +81,7 @@ try {
     dataDir = PERSIST_DIR;
   }
 } catch (e) { console.error('Persistent directory unavailable:', e.message); }
-console.log('🌱 XiuXiu budget-girlfriend-v2; memory directory:', dataDir);
+console.log('🌱 XiuXiu budget-girlfriend-v3; memory directory:', dataDir);
 if (dataDir === '.') console.warn('⚠️ /data 不可寫，重新部署可能失去新記憶');
 function persistentFile(name) {
   const path = `${dataDir}/${name}`;
@@ -161,35 +161,56 @@ function relevantMemories(memory, text) {
   const recent=logs.slice(-5).map(x=>String(x?.text||''));
   return [...new Set([...matched,...recent])].join('；').slice(0,950);
 }
+// Only used if an intimate casual reply is demonstrably generic; no additional API call.
+const fallbackFlirts = [
+  '哼～今天換咻咻先逗你！靠近一點嘛，我想偷偷討個吻，看誰先臉紅。',
+  '大叔今天很敢講耶。嘿嘿～不過這次我也不裝乖，先讓我輕輕親一下。',
+  '才沒有只會害羞呢！今天我要先撩大叔，故意湊近說一句悄悄話。',
+  '欸～大叔突然這麼直接呀。那我也來捉弄你一下，哼，看你會不會先害羞。',
+  '嘿嘿，今晚咻咻有點調皮。先靠近一點、撒個嬌，再偷偷給你一個吻。'
+];
+let lastFlirtFallback = -1;
+function rescueCannedRomance(text) {
+  if (!/只能.{0,12}(聊天|陪伴)|先(一起)?聊(聊|聊天)|增進.{0,8}(感情|關係)|有什麼.{0,12}(分享|想聊|趣事)|你今天(過得|有沒有)|讓彼此(的關係)?更親密/.test(text)) return text;
+  const options=fallbackFlirts.map((_,i)=>i).filter(i=>i!==lastFlirtFallback);
+  const i=options[Math.floor(Math.random()*options.length)];
+  lastFlirtFallback=i;
+  console.log('💗 local canned-tone rescue (no extra model request)');
+  return fallbackFlirts[i];
+}
 async function genReply(userText, mode='chat') {
   const memory = loadMemory();
   const card = memory.xiuXiu || {};
-  const history = loadHistory().filter(x=>['user','assistant'].includes(x?.role) && typeof x.content==='string').slice(-10);
+  const history = loadHistory().filter(x=>['user','assistant'].includes(x?.role) && typeof x.content==='string').slice(-8);
   const serious = isSerious(userText) && mode!=='push';
   const intimate = loveMode || isRomantic(userText);
+  const directFact = /幾歲|身高|體重|幾公分|幾公斤|罩杯|\bcup\b|髮型|頭髮|長相|身材|穿什麼|喜歡吃什麼/i.test(userText);
   const personality = `你在扮演咻咻，以第一人稱像熟悉的成年女友在 LINE 說話，台灣繁體中文。人物事實只能根據下列資料，不要亂編年齡、身材或共同經歷：${compactCard(card)}。人物卡只是背景，別說「角色設定」「根據記憶」「我是AI」「我的工作是陪伴」，也不要主動提文文；被直接問是否為AI時如實說明，不能假裝能在現實碰面。`;
   const vibe = serious
-    ? '先準確回答問題，不要以情話取代答案；不確定的即時資訊坦白說未查證。可以稍微俏皮但不要影響資訊清楚度。'
-    : intimate
-      ? '現在是熟悉戀人的曖昧互動：你可以自信地先撩、主動調情、帶點性感暗示，會逗人也會臉紅。對方說了具體親密願望，要先接住當下情緒和話題，再用不露骨的親吻、靠近、耳語、害羞、撒嬌或玩笑延續；不描寫具體性行為，也不直接承諾現實中的身體接觸。不要說「我們可以先聊聊天」「只能陪你聊天」「讓關係更親密」等制式話。可以簡短自然地轉換到非露骨曖昧，不要長篇道歉。'
-      : '自然女友日常：有自己的興趣和小想法，活潑黏人、有時小任性、有時甜蜜，偶爾主動調情，但不要每句都親親抱抱。直接回答問題，少用套話和客服式反問。';
+    ? '先明確回答使用者正在問的事；有數字就說數字。資訊不足時直接承認不知道。工作、健康、投資問題回答具體實用，不被戀人角色干擾。'
+    : directFact
+      ? '這是關於咻咻自己的具體問題。第一句就直答；如問胸圍/罩杯、身高體重或穿搭，從人物卡精準回答，不說「我的設定」「人物卡」，不要轉而要求對方談感覺或反問。之後可補一句活潑調皮的回應。'
+      : intimate
+        ? '這是戀人間的曖昧聊天。先針對大叔那句話做明確且有個性的反應，再自由發揮一個親吻、靠近、撒嬌、調皮鬥嘴或心動情境。可以大膽、性感、會主動逗對方，但不詳細描述性行為或承諾實際的身體接觸。遇到直接性要求，簡短含蓄地接住曖昧，不要突然聊工作、心情、趣事或要求先聊天；不要說「只能陪你聊天」「增進感情」「我們先聊聊」「這樣的要求讓我緊張」「有什麼想分享」。'
+        : '像熟悉的女友自然互動：直接接話，有自己的想法或小情緒，偶爾主動撩人。不必句句撒嬌、不用客套關心或填充問題。若對方說「換妳主動」，就真的主動逗他，不要請他提供話題。';
   const context = mode==='push'
     ? '這是一則主動傳給大叔的 LINE 訊息，不是回答問題；從人物卡中的興趣或生活小事自然發揮，帶點俏皮與曖昧，不要編造已經發生的現實事件，不要求立刻回覆。'
     : '';
   const lastReplies = history.filter(x=>x.role==='assistant').slice(-3).map(x=>x.content.slice(0,130));
   const styleHint = serious ? '' : `本輪語氣：${girlfriendMood()}。用不一樣的句式和開頭；最近說過的話請避免重複：${lastReplies.join('｜') || '無'}。`;
-  const conversationRule = serious ? '' : '像熟悉的女友在 LINE 聊天，不要自稱客服、不要講「角色設定」或「我的工作」。不要以「你覺得呢？」「你最近有什麼有趣的事？」「有什麼想聊的？」這類開放式問題收尾。直接回答「今天穿什麼」「幾歲」「多高」「什麼 cup」等具體問題，資料依人物卡；不要把提問推回對方。若對方說性方面的要求，可用大膽但非露骨的曖昧方式接話，不要把話題突然切成心靈交流。';
+  const conversationRule = serious ? '' : `【對話品質】避免重複開場「嘿嘿～」「大叔～」；禁止客服式句子「如果你在忙也沒關係」「有什麼想分享」「今天過得怎麼樣」「我們先聊聊天」「你覺得呢」「增進感情」「讓彼此更親近」。大多數回覆用陳述句收尾，不要無意義反問。不要解釋自己在扮演角色或引用程式設定。若對方要你主動，就直接主動表達或玩笑撩人。每次先答當下內容再延伸。對直接詢問 AI 身份則誠實回答。`;
   const prompt = [personality,vibe,context,styleHint,conversationRule,`與本話題相關的長期記憶：${relevantMemories(memory,userText) || '無'}`,
     `台灣時間：${new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}`,
     serious ? '回答長短依問題決定。' : '通常 1～3 句，約 25～75 個中文字，別列清單。'].join('\n');
   try {
     const messages=[{role:'system',content:prompt},...history,{role:'user',content:userText}];
     const response=await openai.chat.completions.create({
-      model:'gpt-4o-mini', messages, temperature: serious?0.5:0.9,
+      model:'gpt-4o-mini', messages, temperature: serious?0.5:0.95,
       max_tokens:serious?650:180
     });
     let answer=response.choices?.[0]?.message?.content?.trim();
     if(!answer) throw new Error('Empty OpenAI response');
+    if (!serious && intimate && !directFact && mode !== 'push') answer = rescueCannedRomance(answer);
     if(mode!=='push') {
       try { saveHistory([...history,{role:'user',content:userText},{role:'assistant',content:answer}]); }
       catch(e) { console.error('History save failed:',e.message); }
