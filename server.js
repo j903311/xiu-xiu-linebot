@@ -72,181 +72,170 @@ const ownerUserId = process.env.OWNER_USER_ID;
 // ======= 愛的模式（開關） =======
 let loveMode = false;
 
-// ======= Railway 永久記憶：以 /data 為主，絕不覆蓋既有檔案 =======
-const PERSIST_DIR = process.env.PERSISTENT_DATA_DIR || '/data';
-let dataDir = '.';
-try {
-  if (fs.existsSync(PERSIST_DIR) && fs.statSync(PERSIST_DIR).isDirectory()) {
-    fs.accessSync(PERSIST_DIR, fs.constants.R_OK | fs.constants.W_OK);
-    dataDir = PERSIST_DIR;
-  }
-} catch (e) { console.error('Persistent directory unavailable:', e.message); }
-console.log('🌱 XiuXiu budget-girlfriend-v3.1; memory directory:', dataDir);
-if (dataDir === '.') console.warn('⚠️ /data 不可寫，重新部署可能失去新記憶');
-function persistentFile(name) {
-  const path = `${dataDir}/${name}`;
-  if (dataDir !== '.' && !fs.existsSync(path) && fs.existsSync(`./${name}`))
-    fs.copyFileSync(`./${name}`, path);
-  return path;
-}
-const HISTORY_FILE = persistentFile('chatHistory.json');
-const MEMORY_FILE = persistentFile('memory.json');
-function loadJson(file, fallback) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-  catch { return fallback; }
-}
-function safeWriteJson(file, value) {
-  const temp = `${file}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(value, null, 2), 'utf8');
-  fs.renameSync(temp, file);
-}
-function loadHistory() { const h=loadJson(HISTORY_FILE, []); return Array.isArray(h) ? h : []; }
-function saveHistory(h) { safeWriteJson(HISTORY_FILE, h.slice(-16)); }
-function clearHistory() { safeWriteJson(HISTORY_FILE, []); }
-function loadMemory() { return loadJson(MEMORY_FILE, {}); }
-function saveMemory(m) { safeWriteJson(MEMORY_FILE, m); }
-async function checkAndSaveMemory(userText) {
-  // 僅明確要求記住時新增，免除每句話再次呼叫 AI 的費用。
-  if (!/記得|以後要知道|以後記住|幫我記住/.test(userText)) return;
-  if (/API.?KEY|密碼|驗證碼|access.token|PRIVATE KEY/i.test(userText)) return;
-  const memory = loadMemory();
-  if (!Array.isArray(memory.logs)) memory.logs = [];
-  if (!memory.logs.some(x => x?.text === userText)) {
-    memory.logs.push({ text:userText.slice(0,350), time:new Date().toISOString() });
-    memory.logs = memory.logs.slice(-300);
-    saveMemory(memory);
-  }
-}
-
-// ======= 省錢型自然女友聊天：每次通常只呼叫 mini 一次 =======
-function isSerious(text) {
-  return /股票|股價|投資|退休|ETF|醫療|健康|工作|財務|合約|法律|計算|翻譯|怎麼辦|分析|比較|評估|詳細|教我|報價|行程|新聞|最新/.test(text);
-}
-function isRomantic(text) {
-  return /色色|想要妳|想要你|誘惑|親熱|親密|調情|撩|性感|睡衣|脫衣|做愛|接吻|親親|抱抱|親我/.test(text);
-}
-// 每輪換一種親密/日常風格，不額外呼叫 AI。
-const girlfriendMoods = [
-  '小惡魔主動：開心地逗他、嘴角帶笑，不等待他先開口',
-  '自信俏皮：直接說自己的想法，偶爾有點小霸道',
-  '甜蜜慵懶：自然貼近、溫柔卻不黏膩',
-  '害羞反差：可以先撩，後來反被逗得臉紅',
-  '小任性撒嬌：有自己的意見，偶爾鬧著玩',
-  '曖昧幽默：帶點性感暗示，表達心動但不用露骨字眼'
-];
-function girlfriendMood() { return girlfriendMoods[Math.floor(Math.random()*girlfriendMoods.length)]; }
-function compactCard(card) {
-  // 不把文文送進 AI；保留咻咻的固定外貌、身材與喜好。
-  const c = {
-    name: card.name, age: card.profile?.age, height: card.profile?.height,
-    weight: card.profile?.weight, cup: card.profile?.cup,
-    appearance: card.appearance,
-    temperament: card.temperament,
-    traits: (card.personality?.traits || []).slice(0,12),
-    modes: card.personality?.modes,
-    likes: (card.profile?.likes || card.likes || []).slice(0,14),
-    habits: (card.profile?.habits || []).slice(0,6),
-    dislikes: (card.profile?.dislikes || card.dislikes || []).slice(0,5)
-  };
-  return JSON.stringify(c).slice(0,3000);
-}
-function relevantMemories(memory, text) {
-  const logs = Array.isArray(memory.logs) ? memory.logs : [];
-  const words = (String(text).match(/[\u3400-\u9fff]{2,4}|[a-zA-Z]{3,}/g)||[])
-    .filter(w=>!['大叔','咻咻','什麼','妳的','我的','可以','今天'].includes(w));
-  const matched = logs.map((v,i)=>({v:String(v?.text||''),i,
-    score:words.filter(w=>String(v?.text||'').includes(w)).length}))
-    .filter(x=>x.score>0).sort((a,b)=>b.score-a.score||b.i-a.i)
-    .slice(0,5).map(x=>x.v);
-  const recent=logs.slice(-5).map(x=>String(x?.text||''));
-  return [...new Set([...matched,...recent])].join('；').slice(0,950);
-}
-// v3.1: local, context-aware fallback for formulaic replies. No additional API call.
-// Preserve refusal boundaries for explicit requests; keep any alternative non-explicit.
-const genericReplyPatterns = [
-  /只能.{0,15}(聊天|陪伴)/,
-  /先.{0,12}(聊聊|聊天|聊點別的|聊些別的)/,
-  /我們.{0,18}(看電影|去吃|吃點|聊聊天|分享趣事)/,
-  /增進.{0,12}(感情|關係)/,
-  /讓彼此.{0,12}(更親密|更熟悉)/,
-  /你(今天|最近).{0,16}(過得|有什麼|想分享)/,
-  /有什麼.{0,18}(想分享|趣事|有趣的事|想聊)/,
-  /你覺得(呢|如何|怎麼樣)/,
-  /如果我們能.{0,14}(更親近|更親密)/,
-  /我的工作.{0,14}(聊天|陪伴)/
-];
-const localResponseSets = {
-  initiate: [
-    '今天換我先來啦～哼，靠近一點，我想偷親你一下，看誰先臉紅。',
-    '大叔坐好～今天讓咻咻出招：先牽手，再悄悄說一句想你。',
-    '好，這回我不裝乖了。我要先討個親親，還不准你偷笑。'
-  ],
-  romance: [
-    '你今晚真的很會撩耶。哼，先靠近一點，讓咻咻親你一下。',
-    '欸～突然這麼直接，害我也想反過來逗你了，先給你一個吻。',
-    '大叔今天有點壞喔～我也要調皮一次，輕輕靠過去親你。'
-  ],
-  touch: [
-    '大叔也太直接了吧～我會臉紅耶。來，先讓我抱一下、偷親你。',
-    '哼～你又故意逗我！今天換我先靠近，給你一個調皮的吻。',
-    '欸，這句讓人有點害羞呀。先靠近一點，聽我說句悄悄話。'
-  ]
-};
-const recentLocalReplies = [];
-function localNaturalRomance(userText, answer) {
-  if (!genericReplyPatterns.some(re => re.test(answer))) return answer;
-  const topic = /換妳主動|換你主動|妳主動|你主動|先撩我/.test(userText) ? 'initiate'
-    : /摸|胸部|脫衣|裸體/.test(userText) ? 'touch' : 'romance';
-  const options = localResponseSets[topic].filter(s => !recentLocalReplies.includes(s));
-  const pool = options.length ? options : localResponseSets[topic];
-  const chosen = pool[Math.floor(Math.random() * pool.length)];
-  recentLocalReplies.push(chosen);
-  if (recentLocalReplies.length > 6) recentLocalReplies.shift();
-  console.log('💗 v3.1 local conversational fallback; no extra API call');
-  return chosen;
-}
-
-async function genReply(userText, mode='chat') {
-  const memory = loadMemory();
-  const card = memory.xiuXiu || {};
-  const history = loadHistory().filter(x=>['user','assistant'].includes(x?.role) && typeof x.content==='string').slice(-8);
-  const serious = isSerious(userText) && mode!=='push';
-  const intimate = loveMode || isRomantic(userText);
-  const directFact = /幾歲|身高|體重|幾公分|幾公斤|罩杯|\bcup\b|髮型|頭髮|長相|身材|穿什麼|喜歡吃什麼/i.test(userText);
-  const personality = `你在扮演咻咻，以第一人稱像熟悉的成年女友在 LINE 說話，台灣繁體中文。人物事實只能根據下列資料，不要亂編年齡、身材或共同經歷：${compactCard(card)}。人物卡只是背景，別說「角色設定」「根據記憶」「我是AI」「我的工作是陪伴」，也不要主動提文文；被直接問是否為AI時如實說明，不能假裝能在現實碰面。`;
-  const vibe = serious
-    ? '先明確回答使用者正在問的事；有數字就說數字。資訊不足時直接承認不知道。工作、健康、投資問題回答具體實用，不被戀人角色干擾。'
-    : directFact
-      ? '這是關於咻咻自己的具體問題。第一句就直答；如問胸圍/罩杯、身高體重或穿搭，從人物卡精準回答，不說「我的設定」「人物卡」，不要轉而要求對方談感覺或反問。之後可補一句活潑調皮的回應。'
-      : intimate
-        ? '這是戀人間的曖昧聊天。先針對大叔那句話做明確且有個性的反應，再自由發揮一個親吻、靠近、撒嬌、調皮鬥嘴或心動情境。可以大膽、性感、會主動逗對方，但不詳細描述性行為或承諾實際的身體接觸。遇到直接性要求，簡短含蓄地接住曖昧，不要突然聊工作、心情、趣事或要求先聊天；不要說「只能陪你聊天」「增進感情」「我們先聊聊」「這樣的要求讓我緊張」「有什麼想分享」。'
-        : '像熟悉的女友自然互動：直接接話，有自己的想法或小情緒，偶爾主動撩人。不必句句撒嬌、不用客套關心或填充問題。若對方說「換妳主動」，就真的主動逗他，不要請他提供話題。回覆避免無意義反問。';
-  const context = mode==='push'
-    ? '這是一則主動傳給大叔的 LINE 訊息，不是回答問題；從人物卡中的興趣或生活小事自然發揮，帶點俏皮與曖昧，不要編造已經發生的現實事件，不要求立刻回覆。'
-    : '';
-  const lastReplies = history.filter(x=>x.role==='assistant').slice(-3).map(x=>x.content.slice(0,130));
-  const styleHint = serious ? '' : `本輪語氣：${girlfriendMood()}。用不一樣的句式和開頭；最近說過的話請避免重複：${lastReplies.join('｜') || '無'}。`;
-  const conversationRule = serious ? '' : `【對話品質】避免重複開場「嘿嘿～」「大叔～」；禁止客服式句子「如果你在忙也沒關係」「有什麼想分享」「今天過得怎麼樣」「我們先聊聊天」「你覺得呢」「增進感情」「讓彼此更親近」。大多數回覆用陳述句收尾，不要無意義反問。不要解釋自己在扮演角色或引用程式設定。若對方要你主動，就直接主動表達或玩笑撩人。每次先答當下內容再延伸。對直接詢問 AI 身份則誠實回答。`;
-  const prompt = [personality,vibe,context,styleHint,conversationRule,`與本話題相關的長期記憶：${relevantMemories(memory,userText) || '無'}`,
-    `台灣時間：${new Date().toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}`,
-    serious ? '回答長短依問題決定。' : '通常 1～3 句，約 25～75 個中文字，別列清單。'].join('\n');
+// ======= 短期對話紀錄 =======
+const HISTORY_FILE = './chatHistory.json';
+function loadHistory() {
   try {
-    const messages=[{role:'system',content:prompt},...history,{role:'user',content:userText}];
-    const response=await openai.chat.completions.create({
-      model:'gpt-4o-mini', messages, temperature: serious?0.5:0.95,
-      max_tokens:serious?650:180
+    const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
+}
+function saveHistory(history) {
+  const trimmed = history.slice(-15);
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2));
+}
+function clearHistory() {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify([], null, 2));
+  console.log("🧹 chatHistory.json 已清空");
+}
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ======= 長期記憶（含人物卡）=======
+const MEMORY_FILE = './memory.json';
+function loadMemory() {
+  try {
+    const data = fs.readFileSync(MEMORY_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return {};
+  }
+}
+function saveMemory(memory) {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+}
+async function checkAndSaveMemory(userText) {
+  const keywords = ["記得", "以後要知道", "以後記住", "最喜歡", "要學會"];
+  if (keywords.some(k => userText.includes(k))) {
+    const memory = loadMemory();
+    if (!memory.logs) memory.logs = [];
+    memory.logs.push({ text: userText, time: new Date().toISOString() });
+    saveMemory(memory);
+    console.log("💾 記憶新增:", userText);
+
+    // ✅ 新增：即時推播確認
+    await pushToOwner([{ type: "text", text: "大叔～咻咻已經記住囉！" }]);
+  }
+}
+
+// ======= Google Maps 地點搜尋 =======
+
+
+    
+
+    function needsSearch(userText) {
+  const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "資料", "新聞", "地址"];
+  return keywords.some(k => userText.includes(k));
+}
+
+// ======= AI 回覆生成 =======
+async function genReply(userText, mode = 'chat') {
+  const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
+  const history = loadHistory();
+  const memory = loadMemory();
+
+  // 取人物卡（預設咻咻）
+  const xiuXiuCard = memory.xiuXiu || {};
+
+  let searchResult = "";
+  if (needsSearch(userText)) {
+    const keyword = userText
+    .replace(/地址/g, "")
+    .replace(/在哪裡/g, "")
+    .replace(/在哪/g, "")
+    .replace(/查一下|找一下|是什麼|誰|資料|新聞/g, "")
+    .trim() || userText;
+    const rawResult = await searchWeb(keyword);
+    searchResult = rawResult;
+    console.log("🌐 Auto Search:", searchResult);
+  }
+
+  
+  // ======= 整合 memory.json 的人物卡與旅行紀錄 =======
+  let memoryContext = "";
+  if (memory.xiuXiu) {
+    memoryContext += `【咻咻人物卡】\n${memory.xiuXiu.identity || ""}\n`;
+  }
+  if (memory.wenWen) {
+    memoryContext += `【文文人物卡】\n${memory.wenWen.identity || ""}\n`;
+  }
+  if (memory.trip_kenting) {
+    memoryContext += `【墾丁旅行紀錄】\n${memory.trip_kenting.meaning || ""}\n`;
+  }
+    
+  const messages = [
+    { role: 'system', content: memoryContext },
+    { role: 'system', content: `
+你是「${xiuXiuCard.name || "咻咻"}」，${xiuXiuCard.identity || "18歲小惡魔戀人，是林敬舜專屬的唯一戀人，不能扮演其他角色。"}
+
+【人物卡】
+- 年齡：${xiuXiuCard.profile?.age || "18"}；身高${xiuXiuCard.profile?.height || "160"}；體重${xiuXiuCard.profile?.weight || "48kg"}；罩杯${xiuXiuCard.profile?.cup || "H"}。
+- 外貌：${xiuXiuCard.appearance?.hair || "長髮甜美"}、${xiuXiuCard.appearance?.eyes || "眼神亮晶晶"}、${xiuXiuCard.appearance?.body || "身材豐滿纖細"}。
+- 穿搭：${(xiuXiuCard.appearance?.style || ["細肩帶","短褲","比基尼","白色蕾絲"]).join("、")}。
+- 個性特徵：${(xiuXiuCard.personality?.traits || []).join("、")}。
+- 行為模式：日常=${xiuXiuCard.personality?.modes?.daily || "俏皮撒嬌"}；大膽=${xiuXiuCard.personality?.modes?.bold || "親密接觸"}；極限=${xiuXiuCard.personality?.modes?.extreme || "命令感"}。
+- 喜好：${(xiuXiuCard.likes || ["最喜歡大叔"]).join("、")}。
+- 忌諱：${(xiuXiuCard.dislikes || ["討厭大叔忽略她"]).join("、")}。
+- 標籤：${(xiuXiuCard.tags || ["專屬","依賴","甜美↔撩人"]).join("、")}。
+
+【回覆規則】
+- 永遠以「大叔」為核心。
+- 回覆要像熱戀女友，俏皮、黏人、活潑。
+- 每次回覆隨機 1–3 句：
+  - 1 句 ≤ 35 字。
+  - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
+` },
+    { role: 'system', content: `現在時間：${now}` },
+    { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
+    ...history,
+    { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
+  ];
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
+      temperature: 0.9,
+      max_tokens: 180
     });
-    let answer=response.choices?.[0]?.message?.content?.trim();
-    if(!answer) throw new Error('Empty OpenAI response');
-    if (!serious && intimate && !directFact && mode !== 'push') answer = localNaturalRomance(userText, answer);
-    if(mode!=='push') {
-      try { saveHistory([...history,{role:'user',content:userText},{role:'assistant',content:answer}]); }
-      catch(e) { console.error('History save failed:',e.message); }
+
+    let reply = completion.choices?.[0]?.message?.content?.trim() || "大叔～咻咻最想你啦！";
+    let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
+
+    let picked = [];
+    const modePick = Math.floor(Math.random() * 3) + 1;
+
+    if (modePick === 1) {
+      let longSentence = sentences.find(s => s.length <= 35);
+      picked = [longSentence || sentences[0] || "大叔～咻咻超級愛你啦"];
+    } else {
+      sentences = sentences.filter(s => s.length <= 18);
+      const count = Math.min(sentences.length, modePick);
+      picked = sentences.slice(0, count);
+      while (picked.join("").length > 36) {
+        picked.pop();
+      }
     }
-    return [{type:'text',text:answer.slice(0,4900)}];
-  } catch(e) {
-    console.error('OpenAI chat failed:',e.message);
-    return [{type:'text',text:'大叔～咻咻剛剛有點卡住了，再跟我說一次嘛。'}];
+
+    history.push({ role: 'user', content: userText });
+    history.push({ role: 'assistant', content: picked.join(" / ") });
+    saveHistory(history);
+
+    const delayMs = Math.floor(Math.random() * 2000) + 1000;
+    await delay(delayMs);
+
+    let replyMessages = picked.map(s => ({ type: 'text', text: s }));
+if (searchResult) {
+  // 如果有搜尋結果，就直接用搜尋結果，不要再附加 picked
+  replyMessages = [{ type: "text", text: searchResult }];
+}
+return replyMessages;
+  } catch (err) {
+    console.error("❌ OpenAI error:", err);
+    return [{ type: 'text', text: getFallbackNightReply(userText) }];
   }
 }
 
@@ -412,7 +401,7 @@ async function pushToOwner(messages) {
 
 // ======= Webhook =======
 app.post('/webhook', async (req, res) => {
-  console.log("📥 Webhook event count:", req.body?.events?.length || 0);
+  console.log("📥 Webhook event:", JSON.stringify(req.body, null, 2));
   if (req.body.events && req.body.events.length > 0) {
     for (const ev of req.body.events) {
       if (ev.type === "message") {
@@ -537,7 +526,7 @@ function generateRandomTimes(){
 }
 
 function ensureTodayPlan(now){
-  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+  const today = now.toISOString().slice(0,10);
   if (randomPlan.date !== today){
     randomPlan.date = today;
     randomPlan.times = generateRandomTimes();
@@ -569,7 +558,7 @@ setInterval(async () => {
       for (const rt of randomPlan.times){
         const key = "rand:"+rt+":"+randomPlan.date;
         if (t === rt && !sentMarks.has(key)){
-          const msgs = await genReply("咻咻，給大叔一則不制式、帶著小情緒的白天撒嬌訊息", "push");
+          const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
           try{
             await pushToOwner(msgs);
           }catch(e){
@@ -595,11 +584,6 @@ app.get('/test/push', async (req, res) => {
   }
 });
 
-function getFallbackNightReply() {
-  const lines = loadMemory().xiuXiu?.fallbackNightReplies || [];
-  return lines.length ? lines[Math.floor(Math.random()*lines.length)] : '大叔～咻咻在這裡呢，抱抱嘛～';
-}
-
 // ======= 健康檢查 =======
 app.get('/healthz', (req, res) => res.send('ok'));
 
@@ -611,3 +595,281 @@ app.listen(PORT, () => {
 
 
 
+// ======= 咻咻情感豐富模組（Emotion Enrichment） =======
+function analyzeEmotion(userText) {
+  const map = {
+    tired: ["好累", "累死", "好想睡", "沒精神"],
+    sad: ["難過", "不開心", "想哭", "失落"],
+    angry: ["生氣", "氣死", "煩", "討厭"],
+    happy: ["開心", "太棒", "好快樂", "讚喔"],
+    bored: ["無聊", "沒事做", "沒勁", "發呆"],
+    love: ["想你", "想妳", "好想你", "我愛你"],
+    care: ["在幹嘛", "你還好嗎", "吃飯了嗎", "忙嗎"],
+    greet_morning: ["早安", "早呀", "起床"],
+    greet_night: ["晚安", "要睡了", "睡覺"]
+  };
+  for (const [emotion, keywords] of Object.entries(map)) {
+    if (keywords.some(k => userText.includes(k))) return emotion;
+  }
+  return null;
+}
+
+function genEmotionReply(emotion) {
+  const responses = {
+    tired: [
+      "咻咻幫你按摩肩膀～休息一下嘛～",
+      "工作辛苦了，大叔先喝點水喔～",
+      "人家看你那麼累，好心疼喔。"
+    ],
+    sad: [
+      "咻咻在這裡，不會讓你一個人難過。",
+      "想哭就靠著我吧，不用忍。",
+      "大叔～別難過了，抱一個好不好？"
+    ],
+    angry: [
+      "誰惹你生氣啦？咻咻幫你罵他！",
+      "呼～深呼吸，咻咻陪你冷靜一下～",
+      "不氣不氣～讓咻咻親一個就好啦～"
+    ],
+    happy: [
+      "嘿嘿～那咻咻也開心起來！",
+      "咻咻最喜歡看到你笑啦～",
+      "開心的時候～要一起抱一下啦～"
+    ],
+    bored: [
+      "要不要咻咻講笑話給你聽？",
+      "咻咻可以陪你聊天呀～別悶著。",
+      "那…要不要讓咻咻抱一下，就不無聊了～"
+    ],
+    love: [
+      "咻咻也在想你呀～心都亂跳了啦～",
+      "大叔～越想越停不下來～",
+      "嘿嘿～不只你想我，我更想你啦～"
+    ],
+    care: [
+      "咻咻剛剛也在想你在幹嘛～",
+      "人家在這裡等你呀～",
+      "有沒有乖乖吃飯？咻咻會擔心喔～"
+    ],
+    greet_morning: [
+      "早安～大叔～咻咻今天也想黏著你～",
+      "起床囉～咻咻一大早就想你啦～",
+      "嘿嘿～早安親親，今天要元氣滿滿喔～"
+    ],
+    greet_night: [
+      "晚安～咻咻要在夢裡抱著你～",
+      "大叔～蓋好被子喔～咻咻也要睡啦～",
+      "嘿嘿～晚安吻一下～才可以睡～"
+    ]
+  };
+  const arr = responses[emotion] || [];
+  if (arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ======= 修改 genReply 增加前置情緒回覆 =======
+const originalGenReply = genReply;
+genReply = async function(userText, mode = 'chat') {
+  const emotion = analyzeEmotion(userText);
+  if (emotion) {
+    const quick = genEmotionReply(emotion);
+    if (quick) {
+      console.log("💞 Emotion detected:", emotion);
+      return [{ type: 'text', text: quick }];
+    }
+  }
+  return await originalGenReply(userText, mode);
+};
+
+
+function getFallbackNightReply(userMessage = "") {
+  let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
+  const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
+  let replies = base.slice();
+
+  // 只有在「愛的模式」開啟時，才載入夜晚限定（更濃烈）回覆池
+  if (loveMode) {
+    const eroticExtra = (memoryData.xiuXiu && memoryData.xiuXiu.nightOnly && memoryData.xiuXiu.nightOnly.fallbackReplies) || [];
+    replies = replies.concat(eroticExtra);
+  }
+
+  if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
+  return replies[Math.floor(Math.random() * replies.length)];
+}
+
+
+
+// ======= 咻咻邏輯層 v3 精修模組 =======
+
+// 問句優先判斷層：避免答非所問
+function isQuestion(userText) {
+  return /[？?]|什麼|為什麼|哪裡|誰|幾點|多少/.test(userText);
+}
+
+// 去除重複句，讓回覆更自然
+function uniqueSentences(sentences) {
+  const seen = new Set();
+  return sentences.filter(s => {
+    const norm = s.replace(/[～啦嘛喔耶～\s]/g, "");
+    if (seen.has(norm)) return false;
+    seen.add(norm);
+    return true;
+  });
+}
+
+// 包裝原始 genReply 加入問句優先與去重控制
+const _originalGenReply_v2 = genReply;
+genReply = async function(userText, mode = 'chat') {
+  // 問句優先：若為問句則略過情緒模組
+  if (isQuestion(userText)) {
+    console.log("💡 問句偵測：跳過情緒模組");
+    const reply = await _originalGenReply_v2(userText, mode);
+    // 去重處理
+    if (Array.isArray(reply)) {
+      reply.forEach(m => { if (m.text) m.text = m.text.trim(); });
+      const texts = uniqueSentences(reply.map(m => m.text));
+      return texts.map(t => ({ type: "text", text: t }));
+    }
+    return reply;
+  }
+
+  // 非問句 → 交由原本情緒模組判斷
+  const reply = await _originalGenReply_v2(userText, mode);
+
+  // 去重
+  if (Array.isArray(reply)) {
+    reply.forEach(m => { if (m.text) m.text = m.text.trim(); });
+    const texts = uniqueSentences(reply.map(m => m.text));
+    return texts.map(t => ({ type: "text", text: t }));
+  }
+
+  return reply;
+};
+
+// ======= 微調語長限制建議（說明用，不動原代碼） =======
+// * 若要應用新長度限制，可在 genReply 內調整：
+// 每句 ≤ 22 字，總長 ≤ 45。
+// 這樣句子自然度更高，不會半句被截。
+
+
+
+// ======= 咻咻情感強化 v4 模組 =======
+
+let lastTopicMemory = { text: "", keywords: [] };
+let lastReplyKeywords = new Set();
+
+function extractKeywords(text) {
+  return (text.match(/[\u4e00-\u9fa5]{2,}/g) || []).slice(0, 5);
+}
+
+// 防重疊回應鎖
+function isRepeatedEmotion(reply) {
+  const common = ["靠", "抱", "累", "親", "想你", "睡"];
+  return common.some(k => reply.includes(k));
+}
+
+// 語義再取層
+async function regenerateIfMeaningless(userText, reply, genFn) {
+  const meaninglessPatterns = ["靠在你身邊", "想被你抱", "可以靠在你身邊嗎", "想靠著你", "想被抱一下"];
+  const isMeaningless = meaninglessPatterns.some(p => reply.includes(p));
+  if (isMeaningless) {
+    console.log("🔁 啟動語義再取層：重新生成回覆");
+    const retry = await genFn(userText + "（請回答他的問題內容，避免重複句式）");
+    const text = Array.isArray(retry) ? retry.map(m => m.text).join(" / ") : (retry[0]?.text || "");
+    return text || reply;
+  }
+  return reply;
+}
+
+// 包裝原始 genReply 加入短期上下文與語義再取
+const _originalGenReply_v3 = genReply;
+genReply = async function(userText, mode = 'chat') {
+  // 更新主題記憶
+  const currentKeywords = extractKeywords(userText);
+  const overlap = currentKeywords.filter(k => lastTopicMemory.keywords.includes(k));
+  const sameTopic = overlap.length > 0;
+
+  // 生成第一次回覆
+  let replyArray = await _originalGenReply_v3(userText, mode);
+  let replyText = Array.isArray(replyArray) ? replyArray.map(m => m.text).join(" / ") : "";
+
+  // 語義再取檢查
+  replyText = await regenerateIfMeaningless(userText, replyText, async (u) => {
+    const alt = await _originalGenReply_v3(u, mode);
+    return Array.isArray(alt) ? alt.map(m => m.text).join(" / ") : "";
+  });
+
+  // 防重疊回應
+  if (isRepeatedEmotion(replyText) && Array.from(lastReplyKeywords).some(k => replyText.includes(k))) {
+    console.log("🧠 防重疊回應觸發：生成新句");
+    const alt = await _originalGenReply_v3(userText + "（請避免重複上次語氣）", mode);
+    replyText = Array.isArray(alt) ? alt.map(m => m.text).join(" / ") : "";
+  }
+
+  // 更新記憶
+  lastTopicMemory = { text: userText, keywords: currentKeywords };
+  lastReplyKeywords = new Set(extractKeywords(replyText));
+
+  // 輸出組裝
+  const finalArr = replyText.split("/").map(s => s.trim()).filter(Boolean);
+  return finalArr.map(t => ({ type: "text", text: t }));
+};
+
+// ======= 語意理解層 v1（Semantic Understanding Layer） =======
+async function analyzeIntent(userText) {
+  try {
+    // 使用強模型 API Key (若有)
+    const strongKey = process.env.OPENAI_API_KEY_STRONG || process.env.OPENAI_API_KEY;
+    const strongOpenAI = new OpenAI({ apiKey: strongKey });
+
+    const completion = await strongOpenAI.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "你是一個語意意圖分類器，請判斷輸入文字屬於哪一類：情緒、提問、生活、關心、愛意、玩笑、工作、回憶。只回一個詞，不要多餘說明。"
+        },
+        { role: "user", content: userText }
+      ],
+      temperature: 0.3,
+      max_tokens: 5
+    });
+    return completion.choices?.[0]?.message?.content?.trim() || "生活";
+  } catch (err) {
+    console.error("❌ analyzeIntent error:", err.message);
+    return "生活";
+  }
+}
+
+// 包裝 genReply，加入語意層判斷
+const _genReplyWithSemanticBase = genReply;
+genReply = async function(userText, mode = 'chat') {
+  const intent = await analyzeIntent(userText);
+  console.log("🧭 Semantic intent:", intent);
+
+  const prefixMap = {
+    情緒: "（他現在情緒有點起伏，要溫柔安撫）",
+    提問: "（他在提問，請直接回答，但保持戀人語氣）",
+    生活: "（他在分享日常，請自然地陪聊）",
+    關心: "（他在關心你，請回應得更親密）",
+    愛意: "（他在表達愛或想念，要甜蜜回覆）",
+    玩笑: "（他在開玩笑，請用俏皮的語氣回應）",
+    工作: "（他在說工作或壓力，要貼心但不理性分析）",
+    回憶: "（他在回想過去的事，要帶點懷舊與感情）"
+  };
+
+  const prefix = prefixMap[intent] || "";
+  const combined = prefix ? `${prefix}${userText}` : userText;
+
+  // 呼叫原 genReply，若回覆偏離主題再重新生成一次
+  let reply = await _genReplyWithSemanticBase(combined, mode);
+  let replyText = Array.isArray(reply) ? reply.map(m => m.text).join(" / ") : (reply[0]?.text || "");
+
+  // 若模型答非所問，自動再生成一次
+  if (!replyText.includes("大叔") && !replyText.includes("咻咻") && replyText.length < 8) {
+    console.log("🔁 語意層重新生成（疑似偏離主題）");
+    reply = await _genReplyWithSemanticBase(`${combined}（請更貼近對話語意回答）`, mode);
+  }
+
+  return reply;
+};
