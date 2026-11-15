@@ -126,6 +126,42 @@ async function checkAndSaveMemory(userText) {
 
     
 
+// ======= AI 連線診斷（不顯示 API 金鑰） =======
+function aiErrorCode(error) {
+  const status = Number(error?.status || error?.response?.status || 0);
+  const rawCode = String(error?.code || error?.error?.code || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  if (status === 401) return 'AI-401';
+  if (status === 403) return 'AI-403';
+  if (status === 404) return 'AI-404';
+  if (status === 429) return 'AI-429';
+  if (status === 400) return 'AI-400';
+  if (status >= 500) return 'AI-5XX';
+  if (rawCode.includes('timeout') || message.includes('timeout')) return 'AI-TIMEOUT';
+  if (rawCode.includes('connection') || message.includes('connection') || message.includes('fetch failed')) return 'AI-NET';
+  return 'AI-OTHER';
+}
+function aiErrorHint(code) {
+  const hints = {
+    'AI-401':'OpenAI API 金鑰無效或未設定',
+    'AI-403':'OpenAI 專案權限不足',
+    'AI-404':'模型名稱錯誤或此專案無法使用該模型',
+    'AI-429':'請檢查 API 額度、計費狀態或請求頻率',
+    'AI-400':'API 請求格式有問題，請查看 Railway Logs',
+    'AI-5XX':'OpenAI 服務暫時出錯',
+    'AI-TIMEOUT':'OpenAI 回應逾時',
+    'AI-NET':'Railway 對 OpenAI 的網路連線失敗',
+    'AI-OTHER':'未分類錯誤，請查看 Railway Logs'
+  };
+  return hints[code] || hints['AI-OTHER'];
+}
+function logAIError(label, error) {
+  const code = aiErrorCode(error);
+  // 不列印 API Key 或整個 request/body；供 Railway Logs 追查。
+  console.error(`[${label}] ${code} status=${error?.status ?? 'none'} errorCode=${error?.code ?? 'none'} message=${String(error?.message || '').slice(0,500)}`);
+  return code;
+}
+
 // ======= 自然對話 3.0：只保留一條 AI 回覆流程 =======
 // 一般問題不再假裝「搜尋」。新聞才讀取原有 Google News RSS。
 function needsSearch(userText) {
@@ -197,8 +233,8 @@ async function genReply(userText, mode = 'chat') {
     }
     return [{type:'text',text:text.slice(0,4900)}];
   } catch (error) {
-    console.error('❌ AI 對話生成失敗:', error?.message || error);
-    return [{type:'text',text:'大叔，我剛剛回覆時遇到一點問題，你可以再傳一次嗎？'}];
+    const code = logAIError('AI 對話生成失敗', error);
+    return [{type:'text',text:`大叔，AI 連線出錯（${code}）。${aiErrorHint(code)}。請看 Railway Logs。`}];
   }
 }
 
@@ -382,6 +418,23 @@ app.post('/webhook', async (req, res) => {
             continue;
           }
 
+
+          // 診斷專用：不加入對話紀錄，也不傳送金鑰。
+          if (userText.trim() === '測試AI') {
+            try {
+              const ping = await openai.chat.completions.create({
+                model: process.env.CHAT_MODEL || 'gpt-4o-mini',
+                messages: [{role:'user', content:'請只回答：連線成功'}],
+                max_tokens:40
+              });
+              const answer = ping.choices?.[0]?.message?.content?.trim();
+              await safeReplyMessage(ev.replyToken, [{type:'text',text:`AI 測試成功：${answer || '已收到回應'}；模型：${process.env.CHAT_MODEL || 'gpt-4o-mini'}`}]);
+            } catch (error) {
+              const code = logAIError('AI 測試失敗', error);
+              await safeReplyMessage(ev.replyToken, [{type:'text',text:`AI 測試失敗（${code}）：${aiErrorHint(code)}。請查看 Railway Logs。`}]);
+            }
+            continue;
+          }
 
           // 測試自然對話時，可清空最近對話；不會刪除長期 memory.json。
           if (userText.trim() === '重設最近對話') {
