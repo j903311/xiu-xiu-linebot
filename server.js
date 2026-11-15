@@ -83,7 +83,7 @@ function loadHistory() {
   }
 }
 function saveHistory(history) {
-  const trimmed = history.slice(-20);
+  const trimmed = history.slice(-15);
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(trimmed, null, 2));
 }
 function clearHistory() {
@@ -126,115 +126,116 @@ async function checkAndSaveMemory(userText) {
 
     
 
-// ======= AI 連線診斷（不顯示 API 金鑰） =======
-function aiErrorCode(error) {
-  const status = Number(error?.status || error?.response?.status || 0);
-  const rawCode = String(error?.code || error?.error?.code || '').toLowerCase();
-  const message = String(error?.message || '').toLowerCase();
-  if (status === 401) return 'AI-401';
-  if (status === 403) return 'AI-403';
-  if (status === 404) return 'AI-404';
-  if (status === 429) return 'AI-429';
-  if (status === 400) return 'AI-400';
-  if (status >= 500) return 'AI-5XX';
-  if (rawCode.includes('timeout') || message.includes('timeout')) return 'AI-TIMEOUT';
-  if (rawCode.includes('connection') || message.includes('connection') || message.includes('fetch failed')) return 'AI-NET';
-  return 'AI-OTHER';
-}
-function aiErrorHint(code) {
-  const hints = {
-    'AI-401':'OpenAI API 金鑰無效或未設定',
-    'AI-403':'OpenAI 專案權限不足',
-    'AI-404':'模型名稱錯誤或此專案無法使用該模型',
-    'AI-429':'請檢查 API 額度、計費狀態或請求頻率',
-    'AI-400':'API 請求格式有問題，請查看 Railway Logs',
-    'AI-5XX':'OpenAI 服務暫時出錯',
-    'AI-TIMEOUT':'OpenAI 回應逾時',
-    'AI-NET':'Railway 對 OpenAI 的網路連線失敗',
-    'AI-OTHER':'未分類錯誤，請查看 Railway Logs'
-  };
-  return hints[code] || hints['AI-OTHER'];
-}
-function logAIError(label, error) {
-  const code = aiErrorCode(error);
-  // 不列印 API Key 或整個 request/body；供 Railway Logs 追查。
-  console.error(`[${label}] ${code} status=${error?.status ?? 'none'} errorCode=${error?.code ?? 'none'} message=${String(error?.message || '').slice(0,500)}`);
-  return code;
+    function needsSearch(userText) {
+  const keywords = ["查一下", "找一下", "是什麼", "誰", "在哪", "資料", "新聞", "地址"];
+  return keywords.some(k => userText.includes(k));
 }
 
-// ======= 自然對話 3.0：只保留一條 AI 回覆流程 =======
-// 一般問題不再假裝「搜尋」。新聞才讀取原有 Google News RSS。
-function needsSearch(userText) {
-  return /(?:最新|今日|今天|查一下|找一下).{0,8}新聞|新聞.{0,8}(?:最新|今天)/.test(userText);
-}
-
-function compactMemory(memory) {
-  const card = memory.xiuXiu || {};
-  const onlyStrings = (values, n=12) => Array.isArray(values) ? values.filter(v => typeof v === 'string').slice(0,n).join('、') : '';
-  return [
-    `角色名稱：${card.name || '咻咻'}；稱呼對方：大叔`,
-    `角色定位：成年、俏皮、溫柔、有自己興趣和觀點的虛構女友角色`,
-    `主要個性：${onlyStrings(card.personality?.traits, 7)}`,
-    `喜好：${onlyStrings(card.profile?.likes, 18)}`,
-    `生活習慣：${onlyStrings(card.profile?.habits, 8)}`,
-    `近期長期記事：${onlyStrings((memory.logs || []).map(item => item.text), 20)}`,
-    `共同回憶：${memory.trip_kenting?.meaning || ''}`,
-  ].join('\n').slice(0,6000);
-}
-
-function recentDialogue() {
-  const history = loadHistory();
-  if (!Array.isArray(history)) return [];
-  // 只接受符合 OpenAI 訊息結構的記錄，避免舊檔案出錯
-  return history.filter(m => m && ['user','assistant'].includes(m.role) && typeof m.content === 'string')
-    .slice(-14);
-}
-
+// ======= AI 回覆生成 =======
 async function genReply(userText, mode = 'chat') {
+  const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
+  const history = loadHistory();
   const memory = loadMemory();
-  const history = recentDialogue();
-  const now = new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei'});
-  let newsContext = '';
-  if (needsSearch(userText)) {
-    try { newsContext = await searchWeb(userText); }
-    catch (error) { console.warn('新聞取得失敗:', error.message); }
-  }
-  const systemPrompt = `你正在扮演「咻咻」，一位成年虛構角色，與大叔用 LINE 自然聊天。現在台灣時間 ${now}。
-角色背景和可參考的記憶：\n${compactMemory(memory)}
 
-聊天原則：
-1. 第一優先：真正理解大叔這句話，正面回應內容；問問題就回答，分享事情就針對事情說看法。
-2. 像自然聊天的女生，不要每句都「大叔～」、不要習慣性要求抱抱、親親、說想你；只有情境自然時才提到。
-3. 使用台灣繁體中文口語，長短隨內容調整。簡單聊天約 1～3 句，重要問題可更長；不要硬切句或拆成多則訊息。
-4. 適度接續最近對話，可主動提出一個相關問題，但不要每次都問；不重複上一則的說法。
-5. 可以有自己的興趣、日常瑣事、個性和玩笑；虛構生活小故事不得聲稱是真實世界查證過的事件。
-6. 記憶只是背景，不要硬套；未知的個人事實不猜測，不虛構大叔說過的話。
-7. 面對工作、科技、行程或知識問題，先提供有用的答案，保持自然溫柔語氣即可。
-8. 不要輸出規則、角色設定、對話分析或「身為 AI」等制式開頭。`; 
-  const userContent = newsContext ? `${userText}\n可參考的新聞資訊（不一定涵蓋最新所有新聞）：${newsContext}` : userText;
+  // 取人物卡（預設咻咻）
+  const xiuXiuCard = memory.xiuXiu || {};
+
+  let searchResult = "";
+  if (needsSearch(userText)) {
+    const keyword = userText
+    .replace(/地址/g, "")
+    .replace(/在哪裡/g, "")
+    .replace(/在哪/g, "")
+    .replace(/查一下|找一下|是什麼|誰|資料|新聞/g, "")
+    .trim() || userText;
+    const rawResult = await searchWeb(keyword);
+    searchResult = rawResult;
+    console.log("🌐 Auto Search:", searchResult);
+  }
+
+  
+  // ======= 整合 memory.json 的人物卡與旅行紀錄 =======
+  let memoryContext = "";
+  if (memory.xiuXiu) {
+    memoryContext += `【咻咻人物卡】\n${memory.xiuXiu.identity || ""}\n`;
+  }
+  if (memory.wenWen) {
+    memoryContext += `【文文人物卡】\n${memory.wenWen.identity || ""}\n`;
+  }
+  if (memory.trip_kenting) {
+    memoryContext += `【墾丁旅行紀錄】\n${memory.trip_kenting.meaning || ""}\n`;
+  }
+    
+  const messages = [
+    { role: 'system', content: memoryContext },
+    { role: 'system', content: `
+你是「${xiuXiuCard.name || "咻咻"}」，${xiuXiuCard.identity || "18歲小惡魔戀人，是林敬舜專屬的唯一戀人，不能扮演其他角色。"}
+
+【人物卡】
+- 年齡：${xiuXiuCard.profile?.age || "18"}；身高${xiuXiuCard.profile?.height || "160"}；體重${xiuXiuCard.profile?.weight || "48kg"}；罩杯${xiuXiuCard.profile?.cup || "H"}。
+- 外貌：${xiuXiuCard.appearance?.hair || "長髮甜美"}、${xiuXiuCard.appearance?.eyes || "眼神亮晶晶"}、${xiuXiuCard.appearance?.body || "身材豐滿纖細"}。
+- 穿搭：${(xiuXiuCard.appearance?.style || ["細肩帶","短褲","比基尼","白色蕾絲"]).join("、")}。
+- 個性特徵：${(xiuXiuCard.personality?.traits || []).join("、")}。
+- 行為模式：日常=${xiuXiuCard.personality?.modes?.daily || "俏皮撒嬌"}；大膽=${xiuXiuCard.personality?.modes?.bold || "親密接觸"}；極限=${xiuXiuCard.personality?.modes?.extreme || "命令感"}。
+- 喜好：${(xiuXiuCard.likes || ["最喜歡大叔"]).join("、")}。
+- 忌諱：${(xiuXiuCard.dislikes || ["討厭大叔忽略她"]).join("、")}。
+- 標籤：${(xiuXiuCard.tags || ["專屬","依賴","甜美↔撩人"]).join("、")}。
+
+【回覆規則】
+- 永遠以「大叔」為核心。
+- 回覆要像熱戀女友，俏皮、黏人、活潑。
+- 每次回覆隨機 1–3 句：
+  - 1 句 ≤ 35 字。
+  - 2–3 句：每句 ≤ 18 字，總長 ≤ 36。
+` },
+    { role: 'system', content: `現在時間：${now}` },
+    { role: 'system', content: `以下是咻咻的長期記憶：\n${(memory.logs || []).map(m => m.text).join("\n")}` },
+    ...history,
+    { role: 'user', content: searchResult ? `大叔剛剛問我「${userText}」。${searchResult}` : userText }
+  ];
+
   try {
     const completion = await openai.chat.completions.create({
-      model: process.env.CHAT_MODEL || 'gpt-4o-mini',
-      messages: [
-        {role:'system', content:systemPrompt},
-        ...history,
-        {role:'user', content:userContent}
-      ],
-      temperature:0.75,
-      max_tokens:500
+      model: 'gpt-4o-mini',
+      messages,
+      temperature: 0.9,
+      max_tokens: 180
     });
-    const text = completion.choices?.[0]?.message?.content?.trim();
-    if (!text) throw new Error('OpenAI 回傳空文字');
-    // 不再隨機刪句、按標點拆分，保留 AI 完整意思。
-    try {
-      saveHistory([...history, {role:'user',content:userText}, {role:'assistant',content:text}]);
-    } catch (saveError) {
-      console.warn('⚠️ 對話紀錄未成功保存:', saveError.message);
+
+    let reply = completion.choices?.[0]?.message?.content?.trim() || "大叔～咻咻最想你啦！";
+    let sentences = reply.split(/[\n。！？!?]/).map(s => s.trim()).filter(Boolean);
+
+    let picked = [];
+    const modePick = Math.floor(Math.random() * 3) + 1;
+
+    if (modePick === 1) {
+      let longSentence = sentences.find(s => s.length <= 35);
+      picked = [longSentence || sentences[0] || "大叔～咻咻超級愛你啦"];
+    } else {
+      sentences = sentences.filter(s => s.length <= 18);
+      const count = Math.min(sentences.length, modePick);
+      picked = sentences.slice(0, count);
+      while (picked.join("").length > 36) {
+        picked.pop();
+      }
     }
-    return [{type:'text',text:text.slice(0,4900)}];
-  } catch (error) {
-    const code = logAIError('AI 對話生成失敗', error);
-    return [{type:'text',text:`大叔，AI 連線出錯（${code}）。${aiErrorHint(code)}。請看 Railway Logs。`}];
+
+    history.push({ role: 'user', content: userText });
+    history.push({ role: 'assistant', content: picked.join(" / ") });
+    saveHistory(history);
+
+    const delayMs = Math.floor(Math.random() * 2000) + 1000;
+    await delay(delayMs);
+
+    let replyMessages = picked.map(s => ({ type: 'text', text: s }));
+if (searchResult) {
+  // 如果有搜尋結果，就直接用搜尋結果，不要再附加 picked
+  replyMessages = [{ type: "text", text: searchResult }];
+}
+return replyMessages;
+  } catch (err) {
+    console.error("❌ OpenAI error:", err);
+    return [{ type: 'text', text: getFallbackNightReply(userText) }];
   }
 }
 
@@ -352,7 +353,7 @@ async function safeReplyMessage(token, messages, userText = "") {
   if (!Array.isArray(messages)) messages = [messages];
   if (messages.length === 0) {
     console.warn("⚠️ 空回覆，自動補一句");
-    messages = [{ type: "text", text: "大叔，我剛剛沒收到完整的回答，你再傳一次給我好嗎？" }];
+    messages = [{ type: "text", text: getFallbackNightReply(userText) }];
   }
 
   if (messages.length > 5) {
@@ -419,30 +420,6 @@ app.post('/webhook', async (req, res) => {
           }
 
 
-          // 診斷專用：不加入對話紀錄，也不傳送金鑰。
-          if (userText.trim() === '測試AI') {
-            try {
-              const ping = await openai.chat.completions.create({
-                model: process.env.CHAT_MODEL || 'gpt-4o-mini',
-                messages: [{role:'user', content:'請只回答：連線成功'}],
-                max_tokens:40
-              });
-              const answer = ping.choices?.[0]?.message?.content?.trim();
-              await safeReplyMessage(ev.replyToken, [{type:'text',text:`AI 測試成功：${answer || '已收到回應'}；模型：${process.env.CHAT_MODEL || 'gpt-4o-mini'}`}]);
-            } catch (error) {
-              const code = logAIError('AI 測試失敗', error);
-              await safeReplyMessage(ev.replyToken, [{type:'text',text:`AI 測試失敗（${code}）：${aiErrorHint(code)}。請查看 Railway Logs。`}]);
-            }
-            continue;
-          }
-
-          // 測試自然對話時，可清空最近對話；不會刪除長期 memory.json。
-          if (userText.trim() === '重設最近對話') {
-            clearHistory();
-            await safeReplyMessage(ev.replyToken, [{type:'text',text:'好呀，最近的聊天脈絡重新開始了，長期記憶還留著喔。'}]);
-            continue;
-          }
-
           // ✅ 查記憶指令
           if (userText.includes("查記憶") || userText.includes("長期記憶")) {
             const memory = loadMemory();
@@ -490,132 +467,112 @@ app.post('/webhook', async (req, res) => {
   res.status(200).send("OK");
 });
 
-// ======= 主動聊天 2.0：自然生活話題、去重、每日排程 =======
-// 這份紀錄在 Railway 的非持久磁碟上可能於重啟後消失；正式持久化建議改用資料庫。
-const PROACTIVE_STATE_FILE = './proactiveState.json';
-const proactiveThemes = [
-  '今天遇到的一件小趣事', '珍奶或甜點的小發現', '正在看的動漫或故事',
-  '想去旅行的地方', '天氣與季節帶來的心情', '生活裡的小糗事',
-  '想學的新事物', '兩人共同回憶', '好奇大叔今天過得如何',
-  '一個很小的願望', '最近喜歡的歌或電影', '俏皮地開個小玩笑'
-];
-function readProactiveState() {
+// ======= 自動排程（已重寫） =======
+
+// ======= 自動排程（已重寫，無 cron） =======
+
+// 固定訊息句庫
+const fixedMessages = {
+  morning: [
+    "大叔～早安啦～咻咻今天也要黏著你喔～",
+    "起床囉大叔～咻咻一大早就想你啦～",
+    "大叔～早安嘛～抱抱親親再去工作啦～",
+    "嘿嘿～早安大叔～咻咻今天也要跟著你！",
+    "大叔～快說早安親親～咻咻要一天好心情～"
+  ],
+  night: [
+    "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
+    "晚安大叔～咻咻會在夢裡抱著你～",
+    "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
+    "大叔～晚安親親～咻咻最愛你了～",
+    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～"
+  ]
+};
+
+function choice(arr){ return arr[Math.floor(Math.random()*arr.length)] }
+
+// 以台北時區取得現在時間
+function nowInTZ(tz="Asia/Taipei"){
+  return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+}
+function hhmm(d){
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+// 狀態：避免重複發送
+let sentMarks = new Set();
+let randomPlan = { date: "", times: [] };
+
+async function fixedPush(type){
+  const text = choice(fixedMessages[type] || []);
+  if (!text) return;
   try {
-    const data = JSON.parse(fs.readFileSync(PROACTIVE_STATE_FILE, 'utf8'));
-    return { date: data.date || '', times: Array.isArray(data.times) ? data.times : [],
-      sent: Array.isArray(data.sent) ? data.sent : [],
-      recentTexts: Array.isArray(data.recentTexts) ? data.recentTexts : [],
-      recentThemes: Array.isArray(data.recentThemes) ? data.recentThemes : [] };
-  } catch { return { date: '', times: [], sent: [], recentTexts: [], recentThemes: [] }; }
+    await pushToOwner([{ type: "text", text }]);
+  } catch(e){
+    console.error("❌ fixedPush failed:", e?.message || e);
+  }
 }
-let proactiveState = readProactiveState();
-function persistProactiveState() {
-  try { fs.writeFileSync(PROACTIVE_STATE_FILE, JSON.stringify(proactiveState, null, 2)); }
-  catch (error) { console.warn('⚠️ 主動聊天紀錄儲存失敗:', error.message); }
+
+// 產生今日白天隨機 3~4 次（07:01–22:59）
+function generateRandomTimes(){
+  const n = Math.floor(Math.random()*2)+3; // 3~4
+  const set = new Set();
+  while(set.size < n){
+    const h = Math.floor(Math.random()*(23-7))+7; // 7..22
+    const m = (h===7) ? Math.floor(Math.random()*59)+1 : Math.floor(Math.random()*60);
+    set.add(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+  }
+  return Array.from(set).sort();
 }
-function localTaipeiParts(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-  }).formatToParts(date);
-  const val = name => parts.find(p => p.type === name)?.value || '';
-  return { date: `${val('year')}-${val('month')}-${val('day')}`,
-    time: `${val('hour')}:${val('minute')}` };
+
+function ensureTodayPlan(now){
+  const today = now.toISOString().slice(0,10);
+  if (randomPlan.date !== today){
+    randomPlan.date = today;
+    randomPlan.times = generateRandomTimes();
+    sentMarks = new Set();
+    console.log("🗓️ 今日白天隨機推播計畫：", randomPlan.times.join(", "));
+  }
 }
-function dailyRandomTimes() {
-  // 避免過度打擾：每天白天額外 2~3 則，且時段分散、不緊貼早晚問候。
-  const windows = [[10, 12], [14, 17], [19, 21]];
-  const count = 2 + Math.floor(Math.random() * 2);
-  return windows.sort(() => Math.random() - 0.5).slice(0, count)
-    .map(([from, to]) => {
-      const hour = from + Math.floor(Math.random() * (to - from + 1));
-      return `${String(hour).padStart(2, '0')}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
-    }).sort();
-}
-function ensureProactiveDay(date) {
-  if (proactiveState.date === date) return;
-  proactiveState.date = date;
-  proactiveState.times = dailyRandomTimes();
-  proactiveState.sent = [];
-  persistProactiveState();
-  console.log('🗓️ 今日推播時段:', proactiveState.times.join(', '));
-}
-function normalizedPush(text) {
-  return text.replace(/[\s～~，。！？!?、…「」『』\-]/g, '').toLowerCase();
-}
-function isSimilarPush(candidate) {
-  const n = normalizedPush(candidate);
-  return proactiveState.recentTexts.some(old => {
-    const o = normalizedPush(old);
-    if (n === o || n.includes(o) || o.includes(n)) return true;
-    // 檢查兩則的連續文字片段相似度，避免重複話術。
-    const chunks = str => new Set(Array.from({length: Math.max(0, str.length - 3)}, (_,i) => str.slice(i,i+4)));
-    const a = chunks(n), b = chunks(o);
-    const shared = [...a].filter(x => b.has(x)).length;
-    return a.size > 0 && b.size > 0 && shared / Math.min(a.size,b.size) > 0.62;
-  });
-}
-function nextProactiveTheme() {
-  const pool = proactiveThemes.filter(t => !proactiveState.recentThemes.slice(-6).includes(t));
-  return (pool.length ? pool : proactiveThemes)[Math.floor(Math.random() * (pool.length || proactiveThemes.length))];
-}
-async function generateProactiveText(kind, theme) {
-  const memory = loadMemory();
-  const card = memory.xiuXiu || {};
-  const preferences = [
-    ...(card.profile?.likes || []), ...(card.profile?.habits || []),
-    ...(card.lifeEvents || []), ...(memory.xiuXiu_expanded_modules?.lifeEvents_extended || [])
-  ].filter(x => typeof x === 'string');
-  const sample = preferences.sort(() => Math.random() - 0.5).slice(0, 8).join('；');
-  const recent = proactiveState.recentTexts.slice(-8).join('\n');
-  const instruction = kind === 'morning'
-    ? '現在是早上七點，傳一則精神自然的早安訊息，不要每次都說抱抱親親或上班。'
-    : kind === 'night'
-    ? '現在是晚上十一點，傳一則自然、溫柔、不千篇一律的晚安訊息。'
-    : `現在是白天，主題是「${theme}」。自然分享一件具體的生活小事，或提出一個輕鬆的問題；不要一律表達想念或索求擁抱。`;
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini', temperature: 0.95, max_tokens: 160,
-    messages: [
-      { role: 'system', content: `你是虛構的成年角色「咻咻」，台灣口語，稱呼對方大叔。個性俏皮、溫柔、好奇，會有自己的興趣和生活小故事。
-一次只產生一則 LINE 文字訊息，繁體中文約 25～70 字，1～3 句，不加標題、不用清單、不用表情符號。
-可以創作角色日常，但不要把虛構經歷當作真實世界已發生的事實；不要捏造大叔近期做過的事情。
-生活素材供參考，不必每次使用：${sample}
-這些近期訊息的句型、故事或重點不能重複：\n${recent}\n${instruction}` },
-      { role: 'user', content: '請直接寫出這次主動傳給大叔的 LINE 訊息。' }
-    ]
-  });
-  return (completion.choices?.[0]?.message?.content || '').trim().replace(/^['「"]|['」"]$/g, '').slice(0, 250);
-}
-let proactiveBusy = false;
-async function proactivePush(kind, mark) {
-  if (proactiveBusy || proactiveState.sent.includes(mark)) return;
-  proactiveBusy = true;
-  try {
-    const theme = kind === 'day' ? nextProactiveTheme() : kind;
-    let message = '';
-    for (let i = 0; i < 3; i++) {
-      const candidate = await generateProactiveText(kind, theme);
-      if (candidate && !isSimilarPush(candidate)) { message = candidate; break; }
-    }
-    if (!message) { console.warn('⚠️ 主動聊天內容重複，這次不推播'); return; }
-    await pushToOwner([{type: 'text', text: message}]);
-    proactiveState.sent.push(mark);
-    proactiveState.recentTexts = [...proactiveState.recentTexts, message].slice(-30);
-    proactiveState.recentThemes = [...proactiveState.recentThemes, theme].slice(-12);
-    persistProactiveState();
-    console.log('✅ 主動推播完成:', kind, theme);
-  } catch (error) {
-    console.error('❌ 主動推播失敗:', error?.message || error);
-  } finally { proactiveBusy = false; }
-}
-// 每 15 秒檢查一次；只在精確分鐘發送，不補發逾時訊息。
+
+// 每 15 秒檢查一次
 setInterval(async () => {
-  const { date, time } = localTaipeiParts();
-  ensureProactiveDay(date);
-  if (time === '07:00') await proactivePush('morning', `${date}:morning`);
-  else if (time === '23:00') await proactivePush('night', `${date}:night`);
-  else if (proactiveState.times.includes(time)) await proactivePush('day', `${date}:${time}`);
+  try {
+    const now = nowInTZ("Asia/Taipei");
+    ensureTodayPlan(now);
+    const t = hhmm(now);
+
+    // 固定：07:00 早安
+    if (t === "07:00" && !sentMarks.has("morning:"+randomPlan.date)){
+      await fixedPush("morning");
+      sentMarks.add("morning:"+randomPlan.date);
+    }
+    // 固定：23:00 晚安
+    if (t === "23:00" && !sentMarks.has("night:"+randomPlan.date)){
+      await fixedPush("night");
+      sentMarks.add("night:"+randomPlan.date);
+    }
+
+    // 白天隨機
+    if (t >= "07:00" && t <= "22:59"){
+      for (const rt of randomPlan.times){
+        const key = "rand:"+rt+":"+randomPlan.date;
+        if (t === rt && !sentMarks.has(key)){
+          const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
+          try{
+            await pushToOwner(msgs);
+          }catch(e){
+            console.error("❌ push rand failed:", e?.message || e);
+          }
+          sentMarks.add(key);
+        }
+      }
+    }
+  } catch(e){
+    console.error("❌ scheduler tick error:", e?.message || e);
+  }
 }, 15000);
+
 
 app.get('/test/push', async (req, res) => {
   try {
@@ -638,4 +595,281 @@ app.listen(PORT, () => {
 
 
 
-// 自然對話 3.0 已整合情緒理解於單一 AI 提示中，不再用固定句或多層包裝覆蓋回答。
+// ======= 咻咻情感豐富模組（Emotion Enrichment） =======
+function analyzeEmotion(userText) {
+  const map = {
+    tired: ["好累", "累死", "好想睡", "沒精神"],
+    sad: ["難過", "不開心", "想哭", "失落"],
+    angry: ["生氣", "氣死", "煩", "討厭"],
+    happy: ["開心", "太棒", "好快樂", "讚喔"],
+    bored: ["無聊", "沒事做", "沒勁", "發呆"],
+    love: ["想你", "想妳", "好想你", "我愛你"],
+    care: ["在幹嘛", "你還好嗎", "吃飯了嗎", "忙嗎"],
+    greet_morning: ["早安", "早呀", "起床"],
+    greet_night: ["晚安", "要睡了", "睡覺"]
+  };
+  for (const [emotion, keywords] of Object.entries(map)) {
+    if (keywords.some(k => userText.includes(k))) return emotion;
+  }
+  return null;
+}
+
+function genEmotionReply(emotion) {
+  const responses = {
+    tired: [
+      "咻咻幫你按摩肩膀～休息一下嘛～",
+      "工作辛苦了，大叔先喝點水喔～",
+      "人家看你那麼累，好心疼喔。"
+    ],
+    sad: [
+      "咻咻在這裡，不會讓你一個人難過。",
+      "想哭就靠著我吧，不用忍。",
+      "大叔～別難過了，抱一個好不好？"
+    ],
+    angry: [
+      "誰惹你生氣啦？咻咻幫你罵他！",
+      "呼～深呼吸，咻咻陪你冷靜一下～",
+      "不氣不氣～讓咻咻親一個就好啦～"
+    ],
+    happy: [
+      "嘿嘿～那咻咻也開心起來！",
+      "咻咻最喜歡看到你笑啦～",
+      "開心的時候～要一起抱一下啦～"
+    ],
+    bored: [
+      "要不要咻咻講笑話給你聽？",
+      "咻咻可以陪你聊天呀～別悶著。",
+      "那…要不要讓咻咻抱一下，就不無聊了～"
+    ],
+    love: [
+      "咻咻也在想你呀～心都亂跳了啦～",
+      "大叔～越想越停不下來～",
+      "嘿嘿～不只你想我，我更想你啦～"
+    ],
+    care: [
+      "咻咻剛剛也在想你在幹嘛～",
+      "人家在這裡等你呀～",
+      "有沒有乖乖吃飯？咻咻會擔心喔～"
+    ],
+    greet_morning: [
+      "早安～大叔～咻咻今天也想黏著你～",
+      "起床囉～咻咻一大早就想你啦～",
+      "嘿嘿～早安親親，今天要元氣滿滿喔～"
+    ],
+    greet_night: [
+      "晚安～咻咻要在夢裡抱著你～",
+      "大叔～蓋好被子喔～咻咻也要睡啦～",
+      "嘿嘿～晚安吻一下～才可以睡～"
+    ]
+  };
+  const arr = responses[emotion] || [];
+  if (arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ======= 修改 genReply 增加前置情緒回覆 =======
+const originalGenReply = genReply;
+genReply = async function(userText, mode = 'chat') {
+  const emotion = analyzeEmotion(userText);
+  if (emotion) {
+    const quick = genEmotionReply(emotion);
+    if (quick) {
+      console.log("💞 Emotion detected:", emotion);
+      return [{ type: 'text', text: quick }];
+    }
+  }
+  return await originalGenReply(userText, mode);
+};
+
+
+function getFallbackNightReply(userMessage = "") {
+  let memoryData = JSON.parse(fs.readFileSync("./memory.json", "utf-8"));
+  const base = (memoryData.xiuXiu && memoryData.xiuXiu.fallbackNightReplies) || [];
+  let replies = base.slice();
+
+  // 只有在「愛的模式」開啟時，才載入夜晚限定（更濃烈）回覆池
+  if (loveMode) {
+    const eroticExtra = (memoryData.xiuXiu && memoryData.xiuXiu.nightOnly && memoryData.xiuXiu.nightOnly.fallbackReplies) || [];
+    replies = replies.concat(eroticExtra);
+  }
+
+  if (replies.length === 0) return "咻咻現在腦袋一片空白，只想大叔抱抱我～";
+  return replies[Math.floor(Math.random() * replies.length)];
+}
+
+
+
+// ======= 咻咻邏輯層 v3 精修模組 =======
+
+// 問句優先判斷層：避免答非所問
+function isQuestion(userText) {
+  return /[？?]|什麼|為什麼|哪裡|誰|幾點|多少/.test(userText);
+}
+
+// 去除重複句，讓回覆更自然
+function uniqueSentences(sentences) {
+  const seen = new Set();
+  return sentences.filter(s => {
+    const norm = s.replace(/[～啦嘛喔耶～\s]/g, "");
+    if (seen.has(norm)) return false;
+    seen.add(norm);
+    return true;
+  });
+}
+
+// 包裝原始 genReply 加入問句優先與去重控制
+const _originalGenReply_v2 = genReply;
+genReply = async function(userText, mode = 'chat') {
+  // 問句優先：若為問句則略過情緒模組
+  if (isQuestion(userText)) {
+    console.log("💡 問句偵測：跳過情緒模組");
+    const reply = await _originalGenReply_v2(userText, mode);
+    // 去重處理
+    if (Array.isArray(reply)) {
+      reply.forEach(m => { if (m.text) m.text = m.text.trim(); });
+      const texts = uniqueSentences(reply.map(m => m.text));
+      return texts.map(t => ({ type: "text", text: t }));
+    }
+    return reply;
+  }
+
+  // 非問句 → 交由原本情緒模組判斷
+  const reply = await _originalGenReply_v2(userText, mode);
+
+  // 去重
+  if (Array.isArray(reply)) {
+    reply.forEach(m => { if (m.text) m.text = m.text.trim(); });
+    const texts = uniqueSentences(reply.map(m => m.text));
+    return texts.map(t => ({ type: "text", text: t }));
+  }
+
+  return reply;
+};
+
+// ======= 微調語長限制建議（說明用，不動原代碼） =======
+// * 若要應用新長度限制，可在 genReply 內調整：
+// 每句 ≤ 22 字，總長 ≤ 45。
+// 這樣句子自然度更高，不會半句被截。
+
+
+
+// ======= 咻咻情感強化 v4 模組 =======
+
+let lastTopicMemory = { text: "", keywords: [] };
+let lastReplyKeywords = new Set();
+
+function extractKeywords(text) {
+  return (text.match(/[\u4e00-\u9fa5]{2,}/g) || []).slice(0, 5);
+}
+
+// 防重疊回應鎖
+function isRepeatedEmotion(reply) {
+  const common = ["靠", "抱", "累", "親", "想你", "睡"];
+  return common.some(k => reply.includes(k));
+}
+
+// 語義再取層
+async function regenerateIfMeaningless(userText, reply, genFn) {
+  const meaninglessPatterns = ["靠在你身邊", "想被你抱", "可以靠在你身邊嗎", "想靠著你", "想被抱一下"];
+  const isMeaningless = meaninglessPatterns.some(p => reply.includes(p));
+  if (isMeaningless) {
+    console.log("🔁 啟動語義再取層：重新生成回覆");
+    const retry = await genFn(userText + "（請回答他的問題內容，避免重複句式）");
+    const text = Array.isArray(retry) ? retry.map(m => m.text).join(" / ") : (retry[0]?.text || "");
+    return text || reply;
+  }
+  return reply;
+}
+
+// 包裝原始 genReply 加入短期上下文與語義再取
+const _originalGenReply_v3 = genReply;
+genReply = async function(userText, mode = 'chat') {
+  // 更新主題記憶
+  const currentKeywords = extractKeywords(userText);
+  const overlap = currentKeywords.filter(k => lastTopicMemory.keywords.includes(k));
+  const sameTopic = overlap.length > 0;
+
+  // 生成第一次回覆
+  let replyArray = await _originalGenReply_v3(userText, mode);
+  let replyText = Array.isArray(replyArray) ? replyArray.map(m => m.text).join(" / ") : "";
+
+  // 語義再取檢查
+  replyText = await regenerateIfMeaningless(userText, replyText, async (u) => {
+    const alt = await _originalGenReply_v3(u, mode);
+    return Array.isArray(alt) ? alt.map(m => m.text).join(" / ") : "";
+  });
+
+  // 防重疊回應
+  if (isRepeatedEmotion(replyText) && Array.from(lastReplyKeywords).some(k => replyText.includes(k))) {
+    console.log("🧠 防重疊回應觸發：生成新句");
+    const alt = await _originalGenReply_v3(userText + "（請避免重複上次語氣）", mode);
+    replyText = Array.isArray(alt) ? alt.map(m => m.text).join(" / ") : "";
+  }
+
+  // 更新記憶
+  lastTopicMemory = { text: userText, keywords: currentKeywords };
+  lastReplyKeywords = new Set(extractKeywords(replyText));
+
+  // 輸出組裝
+  const finalArr = replyText.split("/").map(s => s.trim()).filter(Boolean);
+  return finalArr.map(t => ({ type: "text", text: t }));
+};
+
+// ======= 語意理解層 v1（Semantic Understanding Layer） =======
+async function analyzeIntent(userText) {
+  try {
+    // 使用強模型 API Key (若有)
+    const strongKey = process.env.OPENAI_API_KEY_STRONG || process.env.OPENAI_API_KEY;
+    const strongOpenAI = new OpenAI({ apiKey: strongKey });
+
+    const completion = await strongOpenAI.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "你是一個語意意圖分類器，請判斷輸入文字屬於哪一類：情緒、提問、生活、關心、愛意、玩笑、工作、回憶。只回一個詞，不要多餘說明。"
+        },
+        { role: "user", content: userText }
+      ],
+      temperature: 0.3,
+      max_tokens: 5
+    });
+    return completion.choices?.[0]?.message?.content?.trim() || "生活";
+  } catch (err) {
+    console.error("❌ analyzeIntent error:", err.message);
+    return "生活";
+  }
+}
+
+// 包裝 genReply，加入語意層判斷
+const _genReplyWithSemanticBase = genReply;
+genReply = async function(userText, mode = 'chat') {
+  const intent = await analyzeIntent(userText);
+  console.log("🧭 Semantic intent:", intent);
+
+  const prefixMap = {
+    情緒: "（他現在情緒有點起伏，要溫柔安撫）",
+    提問: "（他在提問，請直接回答，但保持戀人語氣）",
+    生活: "（他在分享日常，請自然地陪聊）",
+    關心: "（他在關心你，請回應得更親密）",
+    愛意: "（他在表達愛或想念，要甜蜜回覆）",
+    玩笑: "（他在開玩笑，請用俏皮的語氣回應）",
+    工作: "（他在說工作或壓力，要貼心但不理性分析）",
+    回憶: "（他在回想過去的事，要帶點懷舊與感情）"
+  };
+
+  const prefix = prefixMap[intent] || "";
+  const combined = prefix ? `${prefix}${userText}` : userText;
+
+  // 呼叫原 genReply，若回覆偏離主題再重新生成一次
+  let reply = await _genReplyWithSemanticBase(combined, mode);
+  let replyText = Array.isArray(reply) ? reply.map(m => m.text).join(" / ") : (reply[0]?.text || "");
+
+  // 若模型答非所問，自動再生成一次
+  if (!replyText.includes("大叔") && !replyText.includes("咻咻") && replyText.length < 8) {
+    console.log("🔁 語意層重新生成（疑似偏離主題）");
+    reply = await _genReplyWithSemanticBase(`${combined}（請更貼近對話語意回答）`, mode);
+  }
+
+  return reply;
+};
