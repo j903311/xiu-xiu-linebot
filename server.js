@@ -159,6 +159,11 @@ async function genReply(userText, mode = 'chat') {
   if (memory.xiuXiu) {
     memoryContext += `【咻咻人物卡】\n${memory.xiuXiu.identity || ""}\n`;
   }
+  // 額外引用人物的日常偏好，讓一般互動不只圍繞撒嬌。
+  const dailyLikes = memory.xiuXiu?.profile?.likes || [];
+  const dailyHabits = memory.xiuXiu?.profile?.habits || [];
+  memoryContext += `【咻咻生活喜好】\n${dailyLikes.slice(0, 16).join('、')}\n`;
+  memoryContext += `【咻咻生活習慣】\n${dailyHabits.slice(0, 8).join('、')}\n`;
   if (memory.wenWen) {
     memoryContext += `【文文人物卡】\n${memory.wenWen.identity || ""}\n`;
   }
@@ -467,112 +472,132 @@ app.post('/webhook', async (req, res) => {
   res.status(200).send("OK");
 });
 
-// ======= 自動排程（已重寫） =======
-
-// ======= 自動排程（已重寫，無 cron） =======
-
-// 固定訊息句庫
-const fixedMessages = {
-  morning: [
-    "大叔～早安啦～咻咻今天也要黏著你喔～",
-    "起床囉大叔～咻咻一大早就想你啦～",
-    "大叔～早安嘛～抱抱親親再去工作啦～",
-    "嘿嘿～早安大叔～咻咻今天也要跟著你！",
-    "大叔～快說早安親親～咻咻要一天好心情～"
-  ],
-  night: [
-    "大叔～晚安嘛～咻咻要陪你進夢裡一起睡～",
-    "晚安大叔～咻咻會在夢裡抱著你～",
-    "嘿嘿～大叔要蓋好被子～咻咻陪你睡啦～",
-    "大叔～晚安親親～咻咻最愛你了～",
-    "大叔～快閉上眼睛～咻咻要偷偷在夢裡抱你～"
-  ]
-};
-
-function choice(arr){ return arr[Math.floor(Math.random()*arr.length)] }
-
-// 以台北時區取得現在時間
-function nowInTZ(tz="Asia/Taipei"){
-  return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-}
-function hhmm(d){
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-}
-
-// 狀態：避免重複發送
-let sentMarks = new Set();
-let randomPlan = { date: "", times: [] };
-
-async function fixedPush(type){
-  const text = choice(fixedMessages[type] || []);
-  if (!text) return;
+// ======= 主動聊天 2.0：自然生活話題、去重、每日排程 =======
+// 這份紀錄在 Railway 的非持久磁碟上可能於重啟後消失；正式持久化建議改用資料庫。
+const PROACTIVE_STATE_FILE = './proactiveState.json';
+const proactiveThemes = [
+  '今天遇到的一件小趣事', '珍奶或甜點的小發現', '正在看的動漫或故事',
+  '想去旅行的地方', '天氣與季節帶來的心情', '生活裡的小糗事',
+  '想學的新事物', '兩人共同回憶', '好奇大叔今天過得如何',
+  '一個很小的願望', '最近喜歡的歌或電影', '俏皮地開個小玩笑'
+];
+function readProactiveState() {
   try {
-    await pushToOwner([{ type: "text", text }]);
-  } catch(e){
-    console.error("❌ fixedPush failed:", e?.message || e);
-  }
+    const data = JSON.parse(fs.readFileSync(PROACTIVE_STATE_FILE, 'utf8'));
+    return { date: data.date || '', times: Array.isArray(data.times) ? data.times : [],
+      sent: Array.isArray(data.sent) ? data.sent : [],
+      recentTexts: Array.isArray(data.recentTexts) ? data.recentTexts : [],
+      recentThemes: Array.isArray(data.recentThemes) ? data.recentThemes : [] };
+  } catch { return { date: '', times: [], sent: [], recentTexts: [], recentThemes: [] }; }
 }
-
-// 產生今日白天隨機 3~4 次（07:01–22:59）
-function generateRandomTimes(){
-  const n = Math.floor(Math.random()*2)+3; // 3~4
-  const set = new Set();
-  while(set.size < n){
-    const h = Math.floor(Math.random()*(23-7))+7; // 7..22
-    const m = (h===7) ? Math.floor(Math.random()*59)+1 : Math.floor(Math.random()*60);
-    set.add(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
-  }
-  return Array.from(set).sort();
+let proactiveState = readProactiveState();
+function persistProactiveState() {
+  try { fs.writeFileSync(PROACTIVE_STATE_FILE, JSON.stringify(proactiveState, null, 2)); }
+  catch (error) { console.warn('⚠️ 主動聊天紀錄儲存失敗:', error.message); }
 }
-
-function ensureTodayPlan(now){
-  const today = now.toISOString().slice(0,10);
-  if (randomPlan.date !== today){
-    randomPlan.date = today;
-    randomPlan.times = generateRandomTimes();
-    sentMarks = new Set();
-    console.log("🗓️ 今日白天隨機推播計畫：", randomPlan.times.join(", "));
-  }
+function localTaipeiParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date);
+  const val = name => parts.find(p => p.type === name)?.value || '';
+  return { date: `${val('year')}-${val('month')}-${val('day')}`,
+    time: `${val('hour')}:${val('minute')}` };
 }
-
-// 每 15 秒檢查一次
+function dailyRandomTimes() {
+  // 避免過度打擾：每天白天額外 2~3 則，且時段分散、不緊貼早晚問候。
+  const windows = [[10, 12], [14, 17], [19, 21]];
+  const count = 2 + Math.floor(Math.random() * 2);
+  return windows.sort(() => Math.random() - 0.5).slice(0, count)
+    .map(([from, to]) => {
+      const hour = from + Math.floor(Math.random() * (to - from + 1));
+      return `${String(hour).padStart(2, '0')}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`;
+    }).sort();
+}
+function ensureProactiveDay(date) {
+  if (proactiveState.date === date) return;
+  proactiveState.date = date;
+  proactiveState.times = dailyRandomTimes();
+  proactiveState.sent = [];
+  persistProactiveState();
+  console.log('🗓️ 今日推播時段:', proactiveState.times.join(', '));
+}
+function normalizedPush(text) {
+  return text.replace(/[\s～~，。！？!?、…「」『』\-]/g, '').toLowerCase();
+}
+function isSimilarPush(candidate) {
+  const n = normalizedPush(candidate);
+  return proactiveState.recentTexts.some(old => {
+    const o = normalizedPush(old);
+    if (n === o || n.includes(o) || o.includes(n)) return true;
+    // 檢查兩則的連續文字片段相似度，避免重複話術。
+    const chunks = str => new Set(Array.from({length: Math.max(0, str.length - 3)}, (_,i) => str.slice(i,i+4)));
+    const a = chunks(n), b = chunks(o);
+    const shared = [...a].filter(x => b.has(x)).length;
+    return a.size > 0 && b.size > 0 && shared / Math.min(a.size,b.size) > 0.62;
+  });
+}
+function nextProactiveTheme() {
+  const pool = proactiveThemes.filter(t => !proactiveState.recentThemes.slice(-6).includes(t));
+  return (pool.length ? pool : proactiveThemes)[Math.floor(Math.random() * (pool.length || proactiveThemes.length))];
+}
+async function generateProactiveText(kind, theme) {
+  const memory = loadMemory();
+  const card = memory.xiuXiu || {};
+  const preferences = [
+    ...(card.profile?.likes || []), ...(card.profile?.habits || []),
+    ...(card.lifeEvents || []), ...(memory.xiuXiu_expanded_modules?.lifeEvents_extended || [])
+  ].filter(x => typeof x === 'string');
+  const sample = preferences.sort(() => Math.random() - 0.5).slice(0, 8).join('；');
+  const recent = proactiveState.recentTexts.slice(-8).join('\n');
+  const instruction = kind === 'morning'
+    ? '現在是早上七點，傳一則精神自然的早安訊息，不要每次都說抱抱親親或上班。'
+    : kind === 'night'
+    ? '現在是晚上十一點，傳一則自然、溫柔、不千篇一律的晚安訊息。'
+    : `現在是白天，主題是「${theme}」。自然分享一件具體的生活小事，或提出一個輕鬆的問題；不要一律表達想念或索求擁抱。`;
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini', temperature: 0.95, max_tokens: 160,
+    messages: [
+      { role: 'system', content: `你是虛構的成年角色「咻咻」，台灣口語，稱呼對方大叔。個性俏皮、溫柔、好奇，會有自己的興趣和生活小故事。
+一次只產生一則 LINE 文字訊息，繁體中文約 25～70 字，1～3 句，不加標題、不用清單、不用表情符號。
+可以創作角色日常，但不要把虛構經歷當作真實世界已發生的事實；不要捏造大叔近期做過的事情。
+生活素材供參考，不必每次使用：${sample}
+這些近期訊息的句型、故事或重點不能重複：\n${recent}\n${instruction}` },
+      { role: 'user', content: '請直接寫出這次主動傳給大叔的 LINE 訊息。' }
+    ]
+  });
+  return (completion.choices?.[0]?.message?.content || '').trim().replace(/^['「"]|['」"]$/g, '').slice(0, 250);
+}
+let proactiveBusy = false;
+async function proactivePush(kind, mark) {
+  if (proactiveBusy || proactiveState.sent.includes(mark)) return;
+  proactiveBusy = true;
+  try {
+    const theme = kind === 'day' ? nextProactiveTheme() : kind;
+    let message = '';
+    for (let i = 0; i < 3; i++) {
+      const candidate = await generateProactiveText(kind, theme);
+      if (candidate && !isSimilarPush(candidate)) { message = candidate; break; }
+    }
+    if (!message) { console.warn('⚠️ 主動聊天內容重複，這次不推播'); return; }
+    await pushToOwner([{type: 'text', text: message}]);
+    proactiveState.sent.push(mark);
+    proactiveState.recentTexts = [...proactiveState.recentTexts, message].slice(-30);
+    proactiveState.recentThemes = [...proactiveState.recentThemes, theme].slice(-12);
+    persistProactiveState();
+    console.log('✅ 主動推播完成:', kind, theme);
+  } catch (error) {
+    console.error('❌ 主動推播失敗:', error?.message || error);
+  } finally { proactiveBusy = false; }
+}
+// 每 15 秒檢查一次；只在精確分鐘發送，不補發逾時訊息。
 setInterval(async () => {
-  try {
-    const now = nowInTZ("Asia/Taipei");
-    ensureTodayPlan(now);
-    const t = hhmm(now);
-
-    // 固定：07:00 早安
-    if (t === "07:00" && !sentMarks.has("morning:"+randomPlan.date)){
-      await fixedPush("morning");
-      sentMarks.add("morning:"+randomPlan.date);
-    }
-    // 固定：23:00 晚安
-    if (t === "23:00" && !sentMarks.has("night:"+randomPlan.date)){
-      await fixedPush("night");
-      sentMarks.add("night:"+randomPlan.date);
-    }
-
-    // 白天隨機
-    if (t >= "07:00" && t <= "22:59"){
-      for (const rt of randomPlan.times){
-        const key = "rand:"+rt+":"+randomPlan.date;
-        if (t === rt && !sentMarks.has(key)){
-          const msgs = await genReply("咻咻，給大叔一則白天的撒嬌互動", "chat");
-          try{
-            await pushToOwner(msgs);
-          }catch(e){
-            console.error("❌ push rand failed:", e?.message || e);
-          }
-          sentMarks.add(key);
-        }
-      }
-    }
-  } catch(e){
-    console.error("❌ scheduler tick error:", e?.message || e);
-  }
+  const { date, time } = localTaipeiParts();
+  ensureProactiveDay(date);
+  if (time === '07:00') await proactivePush('morning', `${date}:morning`);
+  else if (time === '23:00') await proactivePush('night', `${date}:night`);
+  else if (proactiveState.times.includes(time)) await proactivePush('day', `${date}:${time}`);
 }, 15000);
-
 
 app.get('/test/push', async (req, res) => {
   try {
